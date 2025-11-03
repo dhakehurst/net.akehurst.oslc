@@ -21,9 +21,12 @@ import io.ktor.util.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.util.*
+import io.ktor.utils.io.charsets.Charset
+import io.ktor.utils.io.charsets.Charsets
 import io.ktor.utils.io.core.*
 import org.kotlincrypto.macs.hmac.Hmac
 import org.kotlincrypto.macs.hmac.sha1.HmacSHA1
+import kotlin.io.encoding.Base64
 import kotlin.time.Clock
 import kotlin.uuid.ExperimentalUuidApi
 
@@ -121,15 +124,15 @@ fun createSignatureBaseString(
         val isDefaultPort = (protocol.name == "https" && port == 443) || (protocol.name == "http" && port == 80)
         if (isDefaultPort) port = protocol.defaultPort
     }.buildString()
-    val encodedBaseUrl = oauthEncode(baseUrl)
+    val encodedBaseUrl = baseUrl.encodeURLParameter()
 
     // c) Normalized Parameters
     val normalizedParams = allParameters
         .map { (key, value) ->
-            "${oauthEncode(key)}=${oauthEncode(value)}"
+            "${key.encodeURLParameter()}=${value.encodeURLParameter()}"
         }
         .joinToString("&")
-    val encodedParameters = oauthEncode(normalizedParams)
+    val encodedParameters = normalizedParams.encodeOAuth()
 
     // d) Final concatenation
     return "$httpMethod&$encodedBaseUrl&$encodedParameters"
@@ -141,15 +144,15 @@ fun generateNonce(): String = kotlin.uuid.Uuid.random().toString().replace("-", 
 /**
  * Strict OAuth 1.0a encoding required for signature generation.
  */
-fun oauthEncode(s: String): String =
-    s.encodeURLPath()
-        .replace("+", "%20")
-        .replace("*", "%2A")
-        .replace("%7E", "~") // tilde is NOT encoded in OAuth
+fun oauthEncode(s: String): String = s.encodeOAuth()
+//    s.encodeURLPath()
+//        .replace("+", "%20")
+//        .replace("*", "%2A")
+//        .replace("%7E", "~") // tilde is NOT encoded in OAuth
 
 fun generateHmacSha1Signature(data: String, key: String): String {
-    val mac = HmacSHA1(key.toByteArray())
-    val rawHmac = mac.doFinal(data.encodeToByteArray())
-    return rawHmac.encodeBase64()
+    val mac = HmacSHA1(key.toByteArray(Charsets.UTF_8))
+    val rawHmac = mac.doFinal(data.toByteArray(Charsets.UTF_8))
+    return Base64.encode(rawHmac)
 }
 
