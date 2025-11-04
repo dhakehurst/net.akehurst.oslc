@@ -94,7 +94,9 @@ class OslcClient_v3_0(
         rootServicesGraph()?.asModel()?.findStructureWithIdentity("<${baseUrl + rootservices}>")
 
     override suspend fun oauth1_0a(oauthRequestTokenUrl: String, consumerKey: String, consumerSecret: String) {
-        httpClient
+        // 1. requestToken
+
+        // 3. exchange for authorized token
     }
 
 }
