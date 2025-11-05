@@ -17,32 +17,25 @@
 
 package net.akehurst.oslc.core.auth.oauth_1_0a
 
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.api.ClientPlugin
-import io.ktor.client.plugins.api.createClientPlugin
-import io.ktor.client.plugins.auth.AuthConfig
-import io.ktor.client.request.get
-import io.ktor.client.request.parameter
-import io.ktor.client.request.post
-import io.ktor.client.statement.bodyAsText
-import io.ktor.client.statement.request
-import io.ktor.http.HttpMethod
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.Parameters
-import io.ktor.http.isSuccess
-import io.ktor.util.toMap
-import io.ktor.utils.io.KtorDsl
+import io.ktor.client.*
+import io.ktor.client.plugins.api.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.server.engine.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.util.*
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import net.akehurst.oslc.oauth1_0a.createSignatureBaseString
-import net.akehurst.oslc.oauth1_0a.generateHmacSha1Signature
-import net.akehurst.oslc.oauth1_0a.generateNonce
-import net.akehurst.oslc.oauth1_0a.oauthEncode
+import net.akehurst.oslc.core.util.generateHmacSha1Signature
+import net.akehurst.oslc.core.util.openUrl
 import kotlin.time.Clock
 
 enum class ConsumerRequestParameterMethod {
-    /** In the HTTP Authorization header as defined in OAuth HTTP Authorization Scheme [https://oauth.net/core/1.0a/#auth_header]. */
+    /** (Recommended) In the HTTP Authorization header as defined in OAuth HTTP Authorization Scheme [https://oauth.net/core/1.0a/#auth_header]. */
     HttpAuthorizationHeader,
 
     /** As the HTTP POST request body with a content-type of application/x-www-form-urlencoded. */
@@ -52,38 +45,102 @@ enum class ConsumerRequestParameterMethod {
     UrlQueryPart
 }
 
-suspend fun HttpClient.oauth_1_0a(
-    clientKey: String,
-    clientSecret: String,
+suspend fun HttpClient.oauth_1_0a_dance(
+    consumerKey: String,
+    consumerSecret: String,
     oauthRequestTokenUrl: String,
-    oauthUserAuthorizationUrl: String,
-    authorizeCallbackUrl: String,
+    userAuthorizeCallbackUrl: String,
     oauthAccessTokenUrl: String,
-    requestParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
-    additionalRequestParameters: Map<String, String> = emptyMap(),
-    additionalAuthorizationParameters: Map<String, String> = emptyMap(),
-    accessParameterMethod: ConsumerRequestParameterMethod,
-    additionalAccessParameters: Map<String, String> = emptyMap(),
+    requestTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
+    additionalRequestTokenParameters: Map<String, String> = emptyMap(),
+    accessTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
+    additionalAccessTokenParameters: Map<String, String> = emptyMap(),
     /** Must respond with the verification_code */
-    userAuthorise: (client: HttpClient, oauth_token: String) -> String,
-) {
+    userAuthorize: suspend (client: HttpClient, oauth_token: String) -> String,
+): Pair<String, String> {
 
     // 1. The Consumer obtains an unauthorized Request Token.
-    val oauthRequestParameters = mutableMapOf(
-        "oauth_consumer_key" to clientKey,
-        "oauth_nonce" to generateNonce(),
-        "oauth_signature_method" to "HMAC-SHA1",
-        "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
-        "oauth_version" to "1.0",
-    ) + additionalRequestParameters
-    val oauthRequestParametersSorted = oauthRequestParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
-    val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthRequestTokenUrl, oauthRequestParametersSorted)
-    val signingKey = "${oauthEncode(clientSecret)}&"
-    val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
+    val (request_token, request_token_secret) = let {
+        val oauthRequestParameters = mutableMapOf(
+            "oauth_callback" to userAuthorizeCallbackUrl,
+            "oauth_consumer_key" to consumerKey,
+            "oauth_nonce" to generateNonce(),
+            "oauth_signature_method" to "HMAC-SHA1",
+            "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
+            "oauth_version" to "1.0",
+        ) + additionalRequestTokenParameters
+        val oauthRequestParametersSorted = oauthRequestParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
+        val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthRequestTokenUrl, oauthRequestParametersSorted)
+        val signingKey = "${consumerSecret.encodeOAuth()}&"
+        val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
 
-    val unauthorizedResponse: String? = when (requestParameterMethod) {
+        val (unauthorizedResponse, errors) = let {
+            val finalParameters = oauthRequestParameters + Pair("oauth_signature", signature)
+            val requestTokenResponse = this.post(oauthRequestTokenUrl) {
+                addParameters(requestTokenParameterMethod, finalParameters)
+            }
+            if (requestTokenResponse.status.isSuccess()) {
+                Pair(requestTokenResponse.bodyAsText(), null)
+            } else {
+                Pair(null, requestTokenResponse.headers.toMap())
+            }
+        }
+        // parse response: oauth_token=ab3cd9j4ks73hf7g&oauth_token_secret=xyz4992k83j47x0b
+        unauthorizedResponse?.let { raw ->
+            raw.split("&").map { it.substringBefore("=") to it.substringAfter("=") }.let {
+                it[0].second to it[1].second
+            }
+        } ?: error("Unable to obtain a Request Token. $errors")
+    }
+
+    // 2. The Consumer directs the Resource Owner to the Authorization page.
+    // the mechnaism to do this depends on the application it is executed in
+    // typically need to open a webbrowser and get the verification code from the callback
+    val oauth_verifier = userAuthorize.invoke(this, request_token)
+
+    //3. The Consumer exchanges the Request Token for an Access Token.
+    return let {
+        val oauthAccessParameters = mutableMapOf(
+            "oauth_consumer_key" to consumerKey,
+            "oauth_nonce" to generateNonce(),
+            "oauth_signature_method" to "HMAC-SHA1",
+            "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
+            "oauth_token" to request_token.decodeURLPart(),
+            "oauth_verifier" to oauth_verifier.decodeURLPart(),
+            "oauth_version" to "1.0",
+        ) + additionalAccessTokenParameters
+        val oauthAccessParametersSorted = oauthAccessParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
+        val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthAccessTokenUrl, oauthAccessParametersSorted)
+        val signingKey = "${consumerSecret.encodeOAuth()}&${request_token_secret.decodeURLPart().encodeOAuth()}"
+        val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
+        val (authorizedResponse, errors) = let {
+                val finalParameters = oauthAccessParameters + Pair("oauth_signature", signature)
+                val accessTokenResponse = this.post(oauthAccessTokenUrl) {
+                    addParameters(accessTokenParameterMethod, finalParameters)
+                }
+                if (accessTokenResponse.status.isSuccess()) {
+                    Pair(accessTokenResponse.bodyAsText(), null)
+                } else {
+                    Pair(null, accessTokenResponse.headers.toMap())
+                }
+        }
+        // parse response: oauth_token=ab3cd9j4ks73hf7g&oauth_token_secret=xyz4992k83j47x0b
+        authorizedResponse?.let { raw ->
+            raw.split("&").map { it.substringBefore("=") to it.substringAfter("=") }.let {
+                it[0].second to it[1].second
+            }
+        } ?: error("Unable to obtain an Access Token. $errors")
+    }
+}
+
+fun HttpRequestBuilder.addParameters(
+    parameterMethod: ConsumerRequestParameterMethod,
+    parameters: Map<String, String>
+) {
+    when (parameterMethod) {
         ConsumerRequestParameterMethod.HttpAuthorizationHeader -> {
-            TODO()
+            val params = parameters.entries.joinToString(", ") { "${it.key}=\"${it.value.encodeOAuth()}\"" }
+            headers.append(HttpHeaders.Authorization, "OAuth $params")
         }
 
         ConsumerRequestParameterMethod.HttpPostRequestBody -> {
@@ -91,99 +148,178 @@ suspend fun HttpClient.oauth_1_0a(
         }
 
         ConsumerRequestParameterMethod.UrlQueryPart -> {
-            val finalParameters = oauthRequestParameters + Pair("oauth_signature", signature)
-            val requestTokenResponse = this.post(oauthRequestTokenUrl) {
-                finalParameters.forEach { (k, v) -> parameter(k, v) }
-            }
-            if (requestTokenResponse.status.isSuccess()) {
-                requestTokenResponse.bodyAsText()
-            } else {
-                null
-            }
+            parameters.forEach { (k, v) -> parameter(k, v) }
         }
-    }
-    // parse response: oauth_token=ab3cd9j4ks73hf7g&oauth_token_secret=xyz4992k83j47x0b
-    val (oauth_token, oauth_token_secret) = unauthorizedResponse?.let { raw ->
-        raw.split("&").map { it.substringBefore("=") to it.substringAfter("=") }.let {
-            it[0].second to it[1].second
-        }
-    } ?: Pair(null, null)
-
-    if (null == oauth_token || null == oauth_token_secret) {
-        error("Unable to obtain an unauthorized Request Token.")
-    } else {
-
-        //2. The User authorizes the Request Token.
-        val userAuthResponse = this.get(oauthUserAuthorizationUrl) {
-            parameter("oauth_token", oauth_token)
-            additionalAuthorizationParameters.forEach { (k, v) -> parameter(k, v) }
-        }
-        val verificationCode = when (userAuthResponse.status) {
-            HttpStatusCode.Found -> userAuthorise.invoke(this, oauth_token)
-            HttpStatusCode.OK -> userAuthResponse.bodyAsText()
-            else -> error("Unable to Authorize the Request Token.")
-        }
-
-        //3. The Consumer exchanges the Request Token for an Access Token.
-        val oauthAccessParameters = mutableMapOf(
-            "oauth_consumer_key" to clientKey,
-            "oauth_nonce" to generateNonce(),
-            "oauth_signature_method" to "HMAC-SHA1",
-            "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
-            "oauth_token" to oauth_token,
-            "oauth_verifier" to verificationCode,
-            "oauth_version" to "1.0",
-        ) + additionalRequestParameters
-
-        val authorizedResponse: String? = when (accessParameterMethod) {
-            ConsumerRequestParameterMethod.HttpAuthorizationHeader -> {
-                TODO()
-            }
-
-            ConsumerRequestParameterMethod.HttpPostRequestBody -> {
-                TODO()
-            }
-
-            ConsumerRequestParameterMethod.UrlQueryPart -> {
-                val finalParameters = oauthAccessParameters + Pair("oauth_signature", signature)
-                val accessTokenResponse = this.post(oauthRequestTokenUrl) {
-                    finalParameters.forEach { (k, v) -> parameter(k, v) }
-                }
-                if (accessTokenResponse.status.isSuccess()) {
-                    accessTokenResponse.bodyAsText()
-                } else {
-                    null
-                }
-            }
-        }
-
     }
 }
 
-suspend fun waitForCallbackUsingKtorCIOEngine(port: Int, path: String)= coroutineScope {
-    val receivedParams = CompletableDeferred<Parameters>()
-    val server = embeddedServer(io.ktor.server.cio.CIO, port = port, host = "127.0.0.1") {
-        routing {
-            // Define the route that matches the callback URL
-            get(path) {
-                val params = call.request.queryParameters
-                println("callback headers: "+call.request.headers.toMap())
-                // 1. Acknowledge the request (e.g., display a success message)
-                call.respondText("Success! You can close this window now.")
+fun HttpRequestBuilder.oauth1_0a_sign(
+    protectedResourceUrl: String,
+    consumerKey: String,
+    consumerSecret: String,
+    accessToken: String,
+    accessTokenSecret: String,
+    parameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
+    additionalProtectedParameters: List<Pair<String, String>> = emptyList(),
+) {
+    val oauthParameters = mutableMapOf(
+        "oauth_consumer_key" to consumerKey,
+        "oauth_nonce" to generateNonce(),
+        "oauth_signature_method" to "HMAC-SHA1",
+        "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
+        "oauth_token" to accessToken,
+        "oauth_version" to "1.0",
+    )
+    val allParameters = oauthParameters + additionalProtectedParameters
+    val signatureBaseString = createSignatureBaseString(this.method, protectedResourceUrl, allParameters)
+    val signingKey = "${consumerSecret.encodeOAuth()}&${accessTokenSecret.encodeOAuth()}"
+    val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
+    val finalParameters = oauthParameters + Pair("oauth_signature", signature)
+    addParameters(parameterMethod, finalParameters)
+}
 
-                // 2. Fulfill the Deferred object with the parameters
-                receivedParams.complete(params)
+class OAuth_1_0a_Config {
+    internal var _consumerKey: String? = null
+    internal var _consumerSecret: String? = null
+    internal var _oauthRequestTokenUrl: String? = null
+    internal var _userAuthorizeCallbackUrl: String? = null
+    internal var _oauthAccessTokenUrl: String? = null
+
+    internal var _requestTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
+    internal var _additionalRequestTokenParameters: Map<String, String> = emptyMap()
+    internal var _accessTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
+    internal var _additionalAccessTokenParameters: Map<String, String> = emptyMap()
+    internal var _userAuthorize: (suspend (client: HttpClient, oauth_token: String) -> String)? = null
+    internal var _signProtectedParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
+
+    // cached values
+    internal var _accessToken: String? = null
+    internal var _accessTokenSecret: String? = null
+
+    fun consumerKey(value: String) {
+        _consumerKey = value
+    }
+
+    fun consumerSecret(value: String) {
+        _consumerSecret = value
+    }
+
+    fun oauthRequestTokenUrl(value: String) {
+        _oauthRequestTokenUrl = value
+    }
+
+    fun userAuthorizeCallbackUrl(value: String) {
+        _userAuthorizeCallbackUrl = value
+    }
+
+    fun oauthAccessTokenUrl(value: String) {
+        _oauthAccessTokenUrl = value
+    }
+
+    fun requestTokenParameterMethod(value: ConsumerRequestParameterMethod) {
+        _requestTokenParameterMethod = value
+    }
+
+    fun additionalRequestTokenParameters(value: Map<String, String>) {
+        _additionalRequestTokenParameters = value
+    }
+
+    fun accessTokenParameterMethod(value: ConsumerRequestParameterMethod) {
+        _accessTokenParameterMethod = value
+    }
+
+    fun additionalAccessTokenParameters(value: Map<String, String>) {
+        _additionalAccessTokenParameters = value
+    }
+
+    fun userAuthorize(value: suspend (client: HttpClient, oauth_token: String) -> String) {
+        _userAuthorize = value
+    }
+
+    fun signProtectedParameterMethod(value: ConsumerRequestParameterMethod) {
+        _signProtectedParameterMethod = value
+    }
+}
+
+val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a", ::OAuth_1_0a_Config) {
+    val consumerKey = this.pluginConfig._consumerKey ?: error("consumerKey not set")
+    val consumerSecret = this.pluginConfig._consumerSecret ?: error("consumerSecret not set")
+    val signProtectedParameterMethod = pluginConfig._signProtectedParameterMethod
+    val config = this.pluginConfig
+    val clientEngine = this.client.engine
+    onRequest { request, _ ->
+        // if accessToken and secret are null then must do the oauth 1.0a dance
+        val (accessToken, accessTokenSecret) = let {
+            if (null == config._accessToken || null == config._accessTokenSecret) {
+                val oauthRequestTokenUrl = config._oauthRequestTokenUrl ?: error("oauthRequestTokenUrl not set")
+                val userAuthorizeCallbackUrl = config._userAuthorizeCallbackUrl ?: error("userAuthorizeCallbackUrl not set")
+                val oauthAccessTokenUrl = config._oauthAccessTokenUrl ?: error("oauthAccessTokenUrl not set")
+                val requestTokenParameterMethod = config._requestTokenParameterMethod
+                val additionalRequestTokenParameters = config._additionalRequestTokenParameters
+                val accessTokenParameterMethod = config._accessTokenParameterMethod
+                val additionalAccessTokenParameters = config._additionalAccessTokenParameters
+                val userAuthorize = config._userAuthorize ?: error("userAuthorize not set")
+                HttpClient(clientEngine).oauth_1_0a_dance(
+                    consumerKey = consumerKey,
+                    consumerSecret = consumerSecret,
+                    oauthRequestTokenUrl = oauthRequestTokenUrl,
+                    userAuthorizeCallbackUrl = userAuthorizeCallbackUrl,
+                    oauthAccessTokenUrl = oauthAccessTokenUrl,
+                    requestTokenParameterMethod = requestTokenParameterMethod,
+                    additionalRequestTokenParameters = additionalRequestTokenParameters,
+                    accessTokenParameterMethod = accessTokenParameterMethod,
+                    additionalAccessTokenParameters = additionalAccessTokenParameters,
+                    userAuthorize = userAuthorize,
+                ).also {
+                    config._accessToken = it.first
+                    config._accessTokenSecret = it.second
+                }
+            } else {
+                Pair(config._accessToken!!, config._accessTokenSecret!!)
             }
         }
-    }
-    // Start the server asynchronously
-    val serverJob = launch {
-        server.start(wait = false)
-    }
 
-    val params = receivedParams.await()
-    server.stop(100, 100) // Graceful shutdown
-    serverJob.cancel()
+        val additionalProtectedParameters = request.url.parameters.entries().flatMap { (k, l) -> l.map { k to it } }
+        request.oauth1_0a_sign(
+            protectedResourceUrl = request.url.buildString(),
+            consumerKey = consumerKey,
+            consumerSecret = consumerSecret,
+            accessToken = accessToken,
+            accessTokenSecret = accessTokenSecret,
+            parameterMethod = signProtectedParameterMethod,
+            additionalProtectedParameters = additionalProtectedParameters
+        )
+    }
+}
 
-    return@coroutineScope params
+/**
+ * Creates the canonical Signature Base String for hashing.
+ * Format: HTTP_METHOD&URL-ENCODE(BASE_URL)&URL-ENCODE(NORMALIZED_PARAMETERS)
+ */
+fun createSignatureBaseString(
+    method: HttpMethod,
+    fullUrl: String,
+    allParameters: Map<String, String>
+): String {
+    // a) HTTP Method (Uppercase)
+    val httpMethod = method.value.uppercase()
+
+    // b) Base URL: Remove query, fragment, and default ports (80/443)
+    val baseUrl = URLBuilder(fullUrl).apply {
+        parameters.clear()
+        val isDefaultPort = (protocol.name == "https" && port == 443) || (protocol.name == "http" && port == 80)
+        if (isDefaultPort) port = protocol.defaultPort
+    }.buildString()
+    val encodedBaseUrl = baseUrl.encodeURLParameter()
+
+    // c) Normalized Parameters
+    val normalizedParams = allParameters
+        .map { (key, value) ->
+            "${key.encodeURLParameter()}=${value.encodeURLParameter()}"
+        }
+        .joinToString("&")
+    val encodedParameters = normalizedParams.encodeOAuth()
+
+    // d) Final concatenation
+    return "$httpMethod&$encodedBaseUrl&$encodedParameters"
 }

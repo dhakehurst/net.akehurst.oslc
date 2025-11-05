@@ -30,6 +30,7 @@ kotlin {
                 implementation(libs.ktor.server.cio)
                 implementation(libs.hmac.sha1)
                 implementation(libs.nak.json)
+                implementation(libs.nak.kotlinx.logging.common)
             }
         }
     }
