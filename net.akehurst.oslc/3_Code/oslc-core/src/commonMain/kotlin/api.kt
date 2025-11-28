@@ -36,5 +36,5 @@ interface OslcClient {
     suspend fun rootServicesGraph(): RdfGraph?
     suspend fun rootServicesStructure(): RdfStructure?
 
-    suspend fun oauth1_0a(oauthRequestTokenUrl:String,consumerKey:String, consumerSecret:String)
+    suspend fun fetchRdfGraphFromUrl(url:String): RdfGraph?
 }

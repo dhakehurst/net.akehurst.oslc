@@ -49,15 +49,24 @@ class OslcClient_v3_0(
 
     override suspend fun rootServicesGraph(): RdfGraph? {
         val rsUrl = baseUrl + rootservices
-        val response = httpClient.get(rsUrl) {
+        return fetchRdfGraphFromUrl(rsUrl)
+    }
+
+    override suspend fun rootServicesStructure(): RdfStructure? =
+        rootServicesGraph()?.asModel()?.findStructureWithIdentity("${baseUrl + rootservices}")
+
+    override suspend fun fetchRdfGraphFromUrl(url: String): RdfGraph? {
+        val response = httpClient.get(url) {
             requestBuilder.invoke(this)
         }
         return when (response.status) {
             HttpStatusCode.OK -> {
                 val ct = response.contentType()
                 when {
-                    null == ct || //assume rdf+xml if nothing specified
-                            ct.match(RdfContentType.APPLICATION_RDF_XML) -> {
+                    null == ct//assume rdf+xml if nothing specified
+                            || ct.match(RdfContentType.APPLICATION_RDF_XML)
+                            || ct.match("application/x-oslc-disc-service-provider-catalog+xml")
+                        -> {
                         val body = response.bodyAsText()
                         Xml2Rdf_v1_1.convert(body)
                     }
@@ -77,26 +86,17 @@ class OslcClient_v3_0(
                     }
 
                     else -> {
-                        issues.add("Error $rsUrl returns an unsupported ContentType: $ct")
+                        issues.add("Error $url returns an unsupported ContentType: $ct")
                         null
                     }
                 }
             }
 
             else -> {
-                issues.add("Error performing GET on $rsUrl, response.status: ${response.status}")
+                issues.add("Error performing GET on $url, response.status: ${response.status}")
                 null
             }
         }
-    }
-
-    override suspend fun rootServicesStructure(): RdfStructure? =
-        rootServicesGraph()?.asModel()?.findStructureWithIdentity("<${baseUrl + rootservices}>")
-
-    override suspend fun oauth1_0a(oauthRequestTokenUrl: String, consumerKey: String, consumerSecret: String) {
-        // 1. requestToken
-
-        // 3. exchange for authorized token
     }
 
 }

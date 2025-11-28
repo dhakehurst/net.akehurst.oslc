@@ -255,9 +255,16 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
     }
 
     // iri = IRIREF | prefixedName ;
-    private fun iri(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfResource {
-        val v = children[0] as String
-        return RdfResourceDefault(v)
+    private fun iri(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfResource= when(nodeInfo.alt.option.value) {
+        0 -> {
+            val v = children[0] as String
+            RdfResourceDefault(v.removePrefix("<").removeSuffix(">"))
+        }
+        1 -> {
+            val v = children[0] as String
+            RdfResourceDefault(v)
+        }
+        else -> error("should not happen")
     }
 
     // prefixedName = ID? ':' ID? ;

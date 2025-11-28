@@ -87,5 +87,29 @@ interface RdfStructure {
     val identity: String
     val propertyValue : Map<String, List<Any>>
 
+    fun getPropertyAllAsString(propertyName:String): List<String>
+    fun getPropertyFirstAsStringOrNull(propertyName:String): String?
+    fun getPropertyFirstAsString(propertyName:String): String
+
+    fun getPropertyAllAsInteger(propertyName:String): List<Int>
+    fun getPropertyFirstAsIntegerOrNull(propertyName:String): Int?
+    fun getPropertyFirstAsInteger(propertyName:String): Int
+
+    fun getPropertyAllAsDouble(propertyName:String): List<Double>
+    fun getPropertyFirstAsDoubleOrNull(propertyName:String): Double?
+    fun getPropertyFirstAsDouble(propertyName:String): Double
+
+    fun getPropertyAllAsBoolean(propertyName:String): List<Boolean>
+    fun getPropertyFirstAsBooleanOrNull(propertyName:String): Boolean?
+    fun getPropertyFirstAsBoolean(propertyName:String): Boolean
+
+    fun getPropertyAllAsRdfStructure(propertyName:String): List<RdfStructure>
+    fun getPropertyFirstAsRdfStructureOrNull(propertyName:String): RdfStructure?
+    fun getPropertyFirstAsRdfStructure(propertyName:String): RdfStructure
+
+    fun getPropertyAllAsList(propertyName:String): List<List<Any>>
+    fun getPropertyFirstAsListOrNull(propertyName:String): List<Any>?
+    fun getPropertyFirstAsList(propertyName:String): List<Any>
+
     fun asString(): String
 }

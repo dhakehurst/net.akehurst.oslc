@@ -17,6 +17,13 @@ kotlin {
             dependencies {
                 implementation(libs.nal.agl.processor)
                 implementation(project(":rdf"))
+                implementation(libs.ksoup)
+            }
+        }
+
+        commonTest {
+            dependencies {
+                implementation(project(":rdf-turtle"))
             }
         }
     }
