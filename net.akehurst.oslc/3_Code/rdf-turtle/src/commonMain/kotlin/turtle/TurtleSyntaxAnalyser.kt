@@ -29,10 +29,6 @@ typealias RdfTripleFunc = (RdfGraph) -> List<RdfTriple>
 
 class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph>() {
 
-    companion object {
-        var nextAnonNodeId = 0
-    }
-
     private val additionalTriples = mutableListOf<RdfTripleFunc>()
 
     override fun <T : Any> clear(done: Set<SyntaxAnalyser<T>>) {
@@ -82,9 +78,31 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
         return children[0] as (RdfGraph) -> List<RdfTriple>
     }
 
-    // statement = simpleTriple | predicateList | objectList ;
+    // statement = simpleTriple | predicateList | objectList | blankNodePropertyList ;
     private fun statement(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfTripleFunc {
-        return children[0] as (RdfGraph) -> List<RdfTriple>
+        return when (nodeInfo.alt.option.value) {
+            0 -> children[0] as RdfTripleFunc
+            1 -> children[0] as RdfTripleFunc
+            2 -> children[0] as RdfTripleFunc
+            3 ->  {
+                val pl = children[0] as List<Pair<RdfPredicate, List<RdfObject>>>
+                { graph: RdfGraph ->
+                    val list = mutableListOf<RdfTriple>()
+                    RdfBlankNodeDefault().also { subject ->
+                        list.addAll(
+                            pl.flatMap { pair ->
+                                val pred = pair.first
+                                pair.second.map { obj ->
+                                    RdfTripleDefault(graph, subject, pred, obj)
+                                }
+                            }
+                        )
+                    }
+                    list
+                }
+            }
+            else -> error("should not happen")
+        }
     }
 
     // directive
@@ -140,7 +158,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
     private fun predicateList(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfTripleFunc {
         val subject = children[0] as RdfSubject
         val list = children[1] as List<Any>
-        val slist = list.toSeparatedList<Any,Pair<RdfPredicate, List<RdfObject>>, String>()
+        val slist = list.toSeparatedList<Any, Pair<RdfPredicate, List<RdfObject>>, String>()
         //TODO: maybe keep the contraction, and only expand in the graph when wanted !
         return { graph ->
             slist.items.flatMap { pair ->
@@ -156,7 +174,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
     private fun predicateObject(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): Pair<RdfPredicate, List<RdfObject>> {
         val p = children[0] as RdfPredicate
         val list = children[1] as List<Any>
-        val ol = list.toSeparatedList<Any,RdfObject, String>()
+        val ol = list.toSeparatedList<Any, RdfObject, String>()
         return Pair(p, ol.items)
     }
 
@@ -165,7 +183,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
         val subject = children[0] as RdfSubject
         val predicate = children[1] as RdfPredicate
         val list = children[2] as List<RdfObject>
-        val ol = list.toSeparatedList<Any,RdfObject, String>()
+        val ol = list.toSeparatedList<Any, RdfObject, String>()
         //TODO: maybe keep the contraction, and only expand in the graph when wanted !
         return { graph ->
             ol.items.map { obj ->
@@ -182,7 +200,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
             2 -> children[0] as RdfSubject
             3 -> {
                 val list = children[0] as List<Pair<RdfPredicate, List<RdfObject>>>
-                return RdfBlankNodeDefault($$"$anon" + (nextAnonNodeId++)).also { subject ->
+                return RdfBlankNodeDefault().also { subject ->
                     additionalTriples.add({ graph ->
                         list.flatMap { pair ->
                             val pred = pair.first
@@ -200,7 +218,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
 
     // predicate = 'a' | iri ;
     private fun predicate(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfPredicate {
-        return when(nodeInfo.alt.option.value) {
+        return when (nodeInfo.alt.option.value) {
             0 -> RdfPredicateDefault("a")
             1 -> RdfPredicateDefault((children[0] as RdfResource).iri)
             else -> error("should not happen")
@@ -215,7 +233,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
             2 -> children[0] as RdfCollection
             3 -> {
                 val list = children[0] as List<Pair<RdfPredicate, List<RdfObject>>>
-                return RdfBlankNodeDefault($$"$anon" + (nextAnonNodeId++)).also { subject ->
+                return RdfBlankNodeDefault().also { subject ->
                     additionalTriples.add({ graph ->
                         list.flatMap { pair ->
                             val pred = pair.first
@@ -226,6 +244,7 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
                     })
                 }
             }
+
             4 -> children[0] as RdfLiteral
             else -> error("should not happen")
         }
@@ -240,30 +259,31 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
     //blankNodePropertyList = '[' [predicateObject / ';']+ ']' ;
     private fun blankNodePropertyList(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): List<Pair<RdfPredicate, List<RdfObject>>> {
         val list = children[1] as List<Any>
-        val slist = list.toSeparatedList<Any,Pair<RdfPredicate, List<RdfObject>>, String>()
+        val slist = list.toSeparatedList<Any, Pair<RdfPredicate, List<RdfObject>>, String>()
         return slist.items
     }
 
     // blankNode = "_:" ID | '[' ']' ;
     private fun blankNode(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfBlankNode {
-        val label = when (nodeInfo.alt.option.value) {
-            0 -> children[1] as String
-            1 -> $$"$anon" + (nextAnonNodeId++)
+        return when (nodeInfo.alt.option.value) {
+            0 -> RdfBlankNodeDefault(children[1] as String)
+            1 -> RdfBlankNodeDefault()
             else -> error("should not happen")
         }
-        return RdfBlankNodeDefault(label)
     }
 
     // iri = IRIREF | prefixedName ;
-    private fun iri(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfResource= when(nodeInfo.alt.option.value) {
+    private fun iri(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfResource = when (nodeInfo.alt.option.value) {
         0 -> {
             val v = children[0] as String
             RdfResourceDefault(v.removePrefix("<").removeSuffix(">"))
         }
+
         1 -> {
             val v = children[0] as String
             RdfResourceDefault(v)
         }
+
         else -> error("should not happen")
     }
 
@@ -281,12 +301,12 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
 
     // turtleLiteral = INTEGER | DECIMAL | DOUBLE | BOOLEAN | STRING ;
     private fun turtleLiteral(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): RdfLiteral {
-        return when(nodeInfo.alt.option.value) {
-            0 -> RdfLiteralDefault("INTEGER",children[0] as String, null)
-            1 -> RdfLiteralDefault("DECIMAL",children[0] as String, null)
-            2-> RdfLiteralDefault("DOUBLE",children[0] as String, null)
-            3-> RdfLiteralDefault("BOOLEAN",children[0] as String, null)
-            4-> RdfLiteralDefault("STRING",(children[0] as String).removeSurrounding("\""), null)
+        return when (nodeInfo.alt.option.value) {
+            0 -> RdfLiteralDefault("INTEGER", children[0] as String, null)
+            1 -> RdfLiteralDefault("DECIMAL", children[0] as String, null)
+            2 -> RdfLiteralDefault("DOUBLE", children[0] as String, null)
+            3 -> RdfLiteralDefault("BOOLEAN", children[0] as String, null)
+            4 -> RdfLiteralDefault("STRING", (children[0] as String).removeSurrounding("\""), null)
             else -> error("should not happen")
         }
     }
@@ -300,9 +320,9 @@ class TurtleSyntaxAnalyser : SyntaxAnalyserByMethodRegistrationAbstract<RdfGraph
 
     //rdfLiteralTag = LANGTAG | '^^' iri ;
     private fun rdfLiteralTag(nodeInfo: SpptDataNodeInfo, children: List<Any?>, sentence: Sentence): String {
-        return when(nodeInfo.alt.option.value) {
+        return when (nodeInfo.alt.option.value) {
             0 -> children[0] as String
-            1 -> "^^"+(children[1] as RdfResource).iri
+            1 -> "^^" + (children[1] as RdfResource).iri
             else -> error("should not happen")
         }
     }

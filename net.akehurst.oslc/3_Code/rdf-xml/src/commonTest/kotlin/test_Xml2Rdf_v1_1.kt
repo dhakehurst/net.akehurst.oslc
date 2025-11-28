@@ -26,6 +26,21 @@ import kotlin.test.assertTrue
 
 class test_Xml2Rdf_v1_1 {
     private companion object {
+        /**
+         * Normalizes blank node labels in RDF graph string output.
+         * Replaces _:\$blank0, _:\$blank1, etc. with _:b0, _:b1, etc. in order of appearance.
+         */
+        fun normalizeBlankNodes(graphString: String): String {
+            val blankNodePattern = Regex($$"""_:\$blank\d+""")
+            val mapping = mutableMapOf<String, String>()
+            var counter = 0
+
+            return blankNodePattern.replace(graphString) { matchResult ->
+                val original = matchResult.value
+                mapping.getOrPut(original) { "_:b${counter++}" }
+            }
+        }
+
         fun doTest(xml:String, expectedTurtle:String) {
             val rdf = Xml2Rdf_v1_1.convert(xml)
             assertNotNull(rdf)
@@ -37,7 +52,11 @@ class test_Xml2Rdf_v1_1 {
                     it.asm!!
                 }
 
-            assertEquals(expected.asString(), rdf.asString())
+            // Normalize blank node labels before comparison
+            val normalizedExpected = normalizeBlankNodes(expected.asString())
+            val normalizedActual = normalizeBlankNodes(rdf.asString())
+
+            assertEquals(normalizedExpected, normalizedActual)
         }
     }
 
@@ -199,7 +218,7 @@ class test_Xml2Rdf_v1_1 {
     fun rdf_container_bag() {
         val xml = """
             <?xml version="1.0" encoding="UTF-8"?>
-            rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+            <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
                      xmlns:ex="http://example.org/ns#">
             
               <rdf:Description rdf:about="http://example.org/project/p1">
@@ -264,7 +283,7 @@ class test_Xml2Rdf_v1_1 {
                 rdf:subject <http://example.org/book/456> ;
                 rdf:predicate ex:title ;
                 rdf:object "Novel Title"
-            ] .   
+            ] .
             """.trimIndent()
 
         doTest(xml, expected)

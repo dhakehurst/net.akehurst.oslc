@@ -33,7 +33,7 @@ object TurtleLanguage {
         
             unit = directiveOrStatement* ;
             directiveOrStatement = directive | statement '.' ;
-            statement = simpleTriple | predicateList | objectList ;
+            statement = simpleTriple | predicateList | objectList | blankNodePropertyList ;
             directive 
               = '@prefix' ID? ':' iri '.'
               | '@base' iri '.'
@@ -64,7 +64,7 @@ object TurtleLanguage {
             leaf STRING_DOUBLE_QUOTE =  "\"(\\.|[^\"\\])*\"" ;
             leaf STRING_SINGLE_QUOTE =  "'(\\.|[^'\\])*'" ;
             leaf STRING_TRIPLE_DOUBLE_QUOTE =  "(\"\"\")(\\.|\"|\"\"|[^\"\\])*?(\"\"\")" ;
-            leaf STRING_TRIPLE_SINGLE_QUOTE =  "'''(\\.|'|''|[^'\\])*?'''" ;            
+            leaf STRING_TRIPLE_SINGLE_QUOTE =  "'''(\\.|'|''|[^'\\])*?'''" ;
             leaf INTEGER = "[+-]?[0-9]+" ;
             leaf DECIMAL = "[+-]?[0-9]*[.][0-9]+" ;
             leaf DOUBLE = "[+-]?([0-9]+[.][0-9]*[eE][+-]?[0-9]+|[.][0-9]+[eE][+-]?[0-9]+|[0-9]+[eE][+-]?[0-9]+)" ;

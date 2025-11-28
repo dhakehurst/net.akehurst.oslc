@@ -368,6 +368,17 @@ class test_Turtle {
                     <http://books.example.com/works/45U8QJGZSQKDH8N> a frbr:Work .
                 """.trimIndent()
             ),
+            TestData(
+                name = "other 1",
+                sentence = """
+                    [
+                        a rdf:Statement ;
+                        rdf:subject <http://example.org/book/456> ;
+                        rdf:predicate ex:title ;
+                        rdf:object "Novel Title"
+                    ] .
+                """.trimIndent()
+            ),
         )
     }
 

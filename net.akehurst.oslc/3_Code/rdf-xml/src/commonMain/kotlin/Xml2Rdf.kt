@@ -18,10 +18,7 @@
 package net.akehurst.oslc.rdf.xml
 
 import com.fleeksoft.ksoup.Ksoup
-import com.fleeksoft.ksoup.nodes.Attribute
 import com.fleeksoft.ksoup.nodes.Element
-import com.fleeksoft.ksoup.nodes.Node
-import com.fleeksoft.ksoup.nodes.TextNode
 import net.akehurst.language.issues.ram.IssueHolder
 import net.akehurst.oslc.rdf.api.*
 import net.akehurst.oslc.rdf.asm.*
@@ -146,7 +143,14 @@ class Xml2Rdf_v1_1(
         propertyElement: Element,
         baseUri: String
     ) {
-        val predicateStr = toPrefixedForm(propertyElement.tagName()) ?: return
+        // Skip rdf:Statement elements - they're special constructs, not properties
+        val tagName = propertyElement.tagName()
+        if (tagName == "rdf:Statement" || tagName == "Statement") {
+            processReification(graph, subject, propertyElement, baseUri)
+            return
+        }
+
+        val predicateStr = toPrefixedForm(tagName) ?: return
         val predicate = RdfPredicateDefault(predicateStr)
 
         // Check for special RDF attributes
@@ -196,8 +200,6 @@ class Xml2Rdf_v1_1(
                 if (childTag == "rdf:Bag" || childTag == "rdf:Seq" || childTag == "rdf:Alt" ||
                     childTag == "Bag" || childTag == "Seq" || childTag == "Alt") {
                     processContainer(graph, subject, predicate, firstChild, baseUri)
-                } else if (childTag == "rdf:Statement" || childTag == "Statement") {
-                    processReification(graph, subject, predicate, firstChild, baseUri)
                 } else {
                     // Regular nested element - check if it has its own identity
                     val nestedSubject: RdfSubject = when {
@@ -295,16 +297,10 @@ class Xml2Rdf_v1_1(
     private fun processReification(
         graph: RdfGraphDefault,
         subject: RdfSubject,
-        predicate: RdfPredicate,
         statementElement: Element,
         baseUri: String
     ) {
-        // First, add the original triple if it exists in the parent
-        statementElement.childElementsList().forEach { child ->
-            processPropertyElement(graph, subject, child, baseUri)
-        }
-
-        // Then create the reification structure as a blank node
+        // Create the reification structure as a blank node
         val reificationNode = RdfBlankNodeDefault()
 
         // Add type
@@ -317,16 +313,26 @@ class Xml2Rdf_v1_1(
             )
         )
 
-        // Add rdf:subject, rdf:predicate, rdf:object
+        // Add rdf:subject, rdf:predicate, rdf:object from the rdf:Statement children
         statementElement.childElementsList().forEach { child ->
-            val childPredicate = RdfPredicateDefault(toPrefixedForm(child.tagName()) ?: return@forEach)
+            val childTagName = child.tagName()
+            val childPredicate = when {
+                childTagName == "rdf:subject" || childTagName == "subject" -> RdfPredicateDefault("rdf:subject")
+                childTagName == "rdf:predicate" || childTagName == "predicate" -> RdfPredicateDefault("rdf:predicate")
+                childTagName == "rdf:object" || childTagName == "object" -> RdfPredicateDefault("rdf:object")
+                else -> RdfPredicateDefault(toPrefixedForm(childTagName) ?: return@forEach)
+            }
 
             val obj: RdfObject = when {
                 child.hasAttr("rdf:resource") -> {
-                    RdfResourceDefault(resolveUri(child.attr("rdf:resource"), baseUri))
+                    val resourceUri = child.attr("rdf:resource")
+                    val resolvedUri = resolveUri(resourceUri, baseUri)
+                    // Try to convert full URI to prefixed form if it matches a known namespace
+                    val prefixedUri = uriToPrefixedForm(resolvedUri)
+                    RdfResourceDefault(prefixedUri ?: resolvedUri)
                 }
                 child.hasAttr("rdf:parseType") && child.attr("rdf:parseType") == "Literal" -> {
-                    val xmlContent = child.html().trim()
+                    val xmlContent = child.text().trim()
                     RdfLiteralDefault("STRING", xmlContent, null)
                 }
                 else -> {
@@ -351,6 +357,17 @@ class Xml2Rdf_v1_1(
             }
             else -> null
         }
+    }
+
+    private fun uriToPrefixedForm(uri: String): String? {
+        // Try to match the URI against known namespaces and convert to prefixed form
+        for ((prefix, nsUri) in namespaces) {
+            if (uri.startsWith(nsUri)) {
+                val localName = uri.substring(nsUri.length)
+                return "$prefix:$localName"
+            }
+        }
+        return null
     }
 
     private fun expandTagToUri(tagName: String): String? {
