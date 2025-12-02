@@ -15,9 +15,10 @@
  *
  */
 
-package net.akehurst.oslc.v3_0.api
+package net.akehurst.oslc.api
 
 import io.ktor.http.ContentType
+import io.ktor.http.Url
 import net.akehurst.oslc.rdf.api.RdfGraph
 import net.akehurst.oslc.rdf.api.RdfStructure
 
@@ -29,12 +30,24 @@ object RdfContentType {
 }
 
 interface OslcClient {
-    val baseUrl: String
+    val baseUrl: Url
 
-    val issues:List<String>
+    val issues: List<String>
 
     suspend fun rootServicesGraph(): RdfGraph?
     suspend fun rootServicesStructure(): RdfStructure?
 
-    suspend fun fetchRdfGraphFromUrl(url:String): RdfGraph?
+    suspend fun fetchRdfGraphFromUrl(url: Url): RdfGraph?
+
+    fun authoriseBasic(username: String, password: String, realm: String?)
+    fun authoriseOauth_1_0a(
+        consumerKey: String,
+        consumerSecret: String,
+        oauthRequestTokenUrl: Url,
+        oauthUserAuthorizationUrl: Url,
+        userAuthorizeCallbackUrl: Url,
+        oauthAccessTokenUrl: Url,
+        realm: String?,
+    )
 }
+

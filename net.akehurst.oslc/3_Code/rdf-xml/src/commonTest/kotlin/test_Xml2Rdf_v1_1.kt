@@ -352,4 +352,63 @@ class test_Xml2Rdf_v1_1 {
 
         doTest(xml, expected)
     }
+
+    @Test
+    fun cameo_rootservices() {
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rdf:Description
+              rdf:about="https://cameo.server.com:8443/oslc/api/rootservices"
+              xmlns:dc="http://purl.org/dc/terms/"
+              xmlns:jfs="http://jazz.net/xmlns/prod/jazz/jfs/1.0/"
+              xmlns:oslc="http://open-services.net/ns/core#"
+              xmlns:oslc_am="http://open-services.net/ns/am#"
+              xmlns:oslc_config="http://open-services.net/ns/config#"
+              xmlns:oslc_rm="http://open-services.net/xmlns/rm/1.0/"
+              xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+              xmlns:rm="http://www.ibm.com/xmlns/rdm/rdf/"
+            >
+                <jfs:oauthUserAuthorizationUrl rdf:resource="https://cameo.server.com:8443/authentication/oauth/authorize"/>
+                <oslc_am:majorVersion>2024x</oslc_am:majorVersion>
+                <oslc_am:version>2024x</oslc_am:version>
+                <oslc_am:amServiceProviders rdf:resource="https://cameo.server.com:8443/oslc/api/oslc/am/catalog"/>
+                <jfs:oauthRequestConsumerKeyUrl rdf:resource="https://cameo.server.com:8443/authentication/api/oauth/register"/>
+                <dc:title>Teamwork Cloud's OSLC Provider (Architecture Management)</dc:title>
+                <oslc_config:cmServiceProviders rdf:resource="https://cameo.server.com:8443/oslc/api/oslc/am/cm"/>
+                <jfs:oauthAccessTokenUrl rdf:resource="https://cameo.server.com:8443/authentication/api/oauth/access_token"/>
+                <jfs:oauthRequestTokenUrl rdf:resource="https://cameo.server.com:8443/authentication/api/oauth/request_token"/>
+                <jfs:oauthDomain>https://cameo.server.com:8443/oslc/</jfs:oauthDomain>
+                <jfs:oauthRealmName>TWC</jfs:oauthRealmName>
+                <dc:description>Teamwork Cloud is CATIA No Magic's model repository enabling collaboration, configuration management and model governance capabilities.</dc:description>
+              </rdf:Description>
+              """.trimIndent()
+
+        val expected = """
+            @prefix dc: <http://purl.org/dc/terms/> .
+            @prefix jfs: <http://jazz.net/xmlns/prod/jazz/jfs/1.0/> .
+            @prefix oslc: <http://open-services.net/ns/core#> .
+            @prefix oslc_am: <http://open-services.net/ns/am#> .
+            @prefix oslc_config: <http://open-services.net/ns/config#> .
+            @prefix oslc_rm: <http://open-services.net/xmlns/rm/1.0/> .
+            @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+            @prefix rm: <http://www.ibm.com/xmlns/rdm/rdf/> .
+            
+            <https://cameo.server.com:8443/oslc/api/rootservices>
+                jfs:oauthUserAuthorizationUrl <https://cameo.server.com:8443/authentication/oauth/authorize> ;
+                oslc_am:majorVersion "2024x" ;
+                oslc_am:version "2024x" ;
+                oslc_am:amServiceProviders <https://cameo.server.com:8443/oslc/api/oslc/am/catalog> ;
+                jfs:oauthRequestConsumerKeyUrl <https://cameo.server.com:8443/authentication/api/oauth/register> ;
+                dc:title "Teamwork Cloud's OSLC Provider (Architecture Management)" ;
+                oslc_config:cmServiceProviders <https://cameo.server.com:8443/oslc/api/oslc/am/cm> ;
+                jfs:oauthAccessTokenUrl <https://cameo.server.com:8443/authentication/api/oauth/access_token> ;
+                jfs:oauthRequestTokenUrl <https://cameo.server.com:8443/authentication/api/oauth/request_token> ;
+                jfs:oauthDomain "https://cameo.server.com:8443/oslc/" ;
+                jfs:oauthRealmName "TWC" ;
+                dc:description "Teamwork Cloud is CATIA No Magic's model repository enabling collaboration, configuration management and model governance capabilities."
+                .
+        """.trimIndent()
+
+        doTest(xml, expected)
+    }
 }

@@ -30,8 +30,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import net.akehurst.kotlinx.logging.api.logger
 import net.akehurst.oslc.core.util.generateHmacSha1Signature
 import net.akehurst.oslc.core.util.openUrl
+import kotlin.collections.plus
 import kotlin.time.Clock
 
 enum class ConsumerRequestParameterMethod {
@@ -45,6 +47,8 @@ enum class ConsumerRequestParameterMethod {
     UrlQueryPart
 }
 
+private val logger = logger("oauth_1_0a")
+
 suspend fun HttpClient.oauth_1_0a_dance(
     consumerKey: String,
     consumerSecret: String,
@@ -55,6 +59,7 @@ suspend fun HttpClient.oauth_1_0a_dance(
     additionalRequestTokenParameters: Map<String, String> = emptyMap(),
     accessTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
     additionalAccessTokenParameters: Map<String, String> = emptyMap(),
+    realm: String?,
     /** Must respond with the verification_code */
     userAuthorize: suspend (client: HttpClient, oauth_token: String) -> String,
 ): Pair<String, String> {
@@ -68,7 +73,8 @@ suspend fun HttpClient.oauth_1_0a_dance(
             "oauth_signature_method" to "HMAC-SHA1",
             "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
             "oauth_version" to "1.0",
-        ) + additionalRequestTokenParameters
+
+            ) + (realm?.let { mapOf("realm" to it) } ?: emptyMap()) + additionalRequestTokenParameters
         val oauthRequestParametersSorted = oauthRequestParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
         val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthRequestTokenUrl, oauthRequestParametersSorted)
         val signingKey = "${consumerSecret.encodeOAuth()}&"
@@ -76,6 +82,7 @@ suspend fun HttpClient.oauth_1_0a_dance(
 
         val (unauthorizedResponse, errors) = let {
             val finalParameters = oauthRequestParameters + Pair("oauth_signature", signature)
+            logger.logTrace { "Obtain an unauthorized Request Token: POST $oauthRequestTokenUrl (parameters via $requestTokenParameterMethod) parameters: $finalParameters" }
             val requestTokenResponse = this.post(oauthRequestTokenUrl) {
                 addParameters(requestTokenParameterMethod, finalParameters)
             }
@@ -92,6 +99,7 @@ suspend fun HttpClient.oauth_1_0a_dance(
             }
         } ?: error("Unable to obtain a Request Token. $errors")
     }
+    logger.logTrace { "Obtained request_token=$request_token  request_token_secret=**********" }
 
     // 2. The Consumer directs the Resource Owner to the Authorization page.
     // the mechnaism to do this depends on the application it is executed in
@@ -108,28 +116,30 @@ suspend fun HttpClient.oauth_1_0a_dance(
             "oauth_token" to request_token.decodeURLPart(),
             "oauth_verifier" to oauth_verifier.decodeURLPart(),
             "oauth_version" to "1.0",
-        ) + additionalAccessTokenParameters
+        ) + (realm?.let { mapOf("realm" to it) } ?: emptyMap()) + additionalAccessTokenParameters
         val oauthAccessParametersSorted = oauthAccessParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
         val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthAccessTokenUrl, oauthAccessParametersSorted)
         val signingKey = "${consumerSecret.encodeOAuth()}&${request_token_secret.decodeURLPart().encodeOAuth()}"
         val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
         val (authorizedResponse, errors) = let {
-                val finalParameters = oauthAccessParameters + Pair("oauth_signature", signature)
-                val accessTokenResponse = this.post(oauthAccessTokenUrl) {
-                    addParameters(accessTokenParameterMethod, finalParameters)
-                }
-                if (accessTokenResponse.status.isSuccess()) {
-                    Pair(accessTokenResponse.bodyAsText(), null)
-                } else {
-                    Pair(null, accessTokenResponse.headers.toMap())
-                }
+            val finalParameters = oauthAccessParameters + Pair("oauth_signature", signature)
+            logger.logTrace { "Exchange the Request Token for an Access Token: POST $oauthAccessTokenUrl (parameters via $accessTokenParameterMethod) parameters: $finalParameters" }
+            val accessTokenResponse = this.post(oauthAccessTokenUrl) {
+                addParameters(accessTokenParameterMethod, finalParameters)
+            }
+            if (accessTokenResponse.status.isSuccess()) {
+                Pair(accessTokenResponse.bodyAsText(), null)
+            } else {
+                Pair(null, accessTokenResponse.headers.toMap())
+            }
         }
-        // parse response: oauth_token=ab3cd9j4ks73hf7g&oauth_token_secret=xyz4992k83j47x0b
-        authorizedResponse?.let { raw ->
+        val accessPair = authorizedResponse?.let { raw ->
             raw.split("&").map { it.substringBefore("=") to it.substringAfter("=") }.let {
                 it[0].second to it[1].second
             }
         } ?: error("Unable to obtain an Access Token. $errors")
+        logger.logTrace { "Obtained access_token=${accessPair.first}  access_token_secret=**********" }
+        accessPair
     }
 }
 
@@ -159,6 +169,7 @@ fun HttpRequestBuilder.oauth1_0a_sign(
     consumerSecret: String,
     accessToken: String,
     accessTokenSecret: String,
+    realm: String?,
     parameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
     additionalProtectedParameters: List<Pair<String, String>> = emptyList(),
 ) {
@@ -169,13 +180,15 @@ fun HttpRequestBuilder.oauth1_0a_sign(
         "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
         "oauth_token" to accessToken,
         "oauth_version" to "1.0",
-    )
+    ) + (realm?.let { mapOf("realm" to it) } ?: emptyMap())
     val allParameters = oauthParameters + additionalProtectedParameters
     val signatureBaseString = createSignatureBaseString(this.method, protectedResourceUrl, allParameters)
     val signingKey = "${consumerSecret.encodeOAuth()}&${accessTokenSecret.encodeOAuth()}"
     val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
     val finalParameters = oauthParameters + Pair("oauth_signature", signature)
     addParameters(parameterMethod, finalParameters)
+    logger.logInformation { "Request Signed (OAuth 1.0a): $method $protectedResourceUrl" }
+    logger.logTrace { "Request Signed (OAuth 1.0a):    (parameters via $parameterMethod) parameters: $finalParameters" }
 }
 
 class OAuth_1_0a_Config {
@@ -184,6 +197,7 @@ class OAuth_1_0a_Config {
     internal var _oauthRequestTokenUrl: String? = null
     internal var _userAuthorizeCallbackUrl: String? = null
     internal var _oauthAccessTokenUrl: String? = null
+    internal var _realm: String? = null
 
     internal var _requestTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
     internal var _additionalRequestTokenParameters: Map<String, String> = emptyMap()
@@ -216,6 +230,10 @@ class OAuth_1_0a_Config {
         _oauthAccessTokenUrl = value
     }
 
+    fun realm(value: String?) {
+        _realm = value
+    }
+
     fun requestTokenParameterMethod(value: ConsumerRequestParameterMethod) {
         _requestTokenParameterMethod = value
     }
@@ -244,6 +262,7 @@ class OAuth_1_0a_Config {
 val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a", ::OAuth_1_0a_Config) {
     val consumerKey = this.pluginConfig._consumerKey ?: error("consumerKey not set")
     val consumerSecret = this.pluginConfig._consumerSecret ?: error("consumerSecret not set")
+    val realm = this.pluginConfig._realm
     val signProtectedParameterMethod = pluginConfig._signProtectedParameterMethod
     val config = this.pluginConfig
     val clientEngine = this.client.engine
@@ -259,7 +278,7 @@ val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a
                 val accessTokenParameterMethod = config._accessTokenParameterMethod
                 val additionalAccessTokenParameters = config._additionalAccessTokenParameters
                 val userAuthorize = config._userAuthorize ?: error("userAuthorize not set")
-                HttpClient(clientEngine).oauth_1_0a_dance(
+                val (access_token, access_secret) = HttpClient(clientEngine).oauth_1_0a_dance(
                     consumerKey = consumerKey,
                     consumerSecret = consumerSecret,
                     oauthRequestTokenUrl = oauthRequestTokenUrl,
@@ -269,16 +288,18 @@ val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a
                     additionalRequestTokenParameters = additionalRequestTokenParameters,
                     accessTokenParameterMethod = accessTokenParameterMethod,
                     additionalAccessTokenParameters = additionalAccessTokenParameters,
+                    realm = realm,
                     userAuthorize = userAuthorize,
-                ).also {
-                    config._accessToken = it.first
-                    config._accessTokenSecret = it.second
-                }
+                )
+                logger.logTrace { "Received: access_token=$access_token  access_secret=**********" }
+                config._accessToken = access_token.decodeURLPart()
+                config._accessTokenSecret = access_secret.decodeURLPart()
+                config._accessToken!! to config._accessTokenSecret!!
             } else {
                 Pair(config._accessToken!!, config._accessTokenSecret!!)
             }
         }
-
+        logger.logTrace { "Using for signing: access_token=$accessToken  access_secret=**********" }
         val additionalProtectedParameters = request.url.parameters.entries().flatMap { (k, l) -> l.map { k to it } }
         request.oauth1_0a_sign(
             protectedResourceUrl = request.url.buildString(),
@@ -286,6 +307,7 @@ val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a
             consumerSecret = consumerSecret,
             accessToken = accessToken,
             accessTokenSecret = accessTokenSecret,
+            realm = realm,
             parameterMethod = signProtectedParameterMethod,
             additionalProtectedParameters = additionalProtectedParameters
         )

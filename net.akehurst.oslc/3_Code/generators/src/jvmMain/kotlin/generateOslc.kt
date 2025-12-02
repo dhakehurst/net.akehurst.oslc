@@ -17,14 +17,9 @@
 
 package net.akehurst.oslc.generators
 
-import korlibs.datastructure.Extra
 import korlibs.io.file.std.resourcesVfs
-import net.akehurst.oslc.rdf.api.RdfBlankNode
-import net.akehurst.oslc.rdf.api.RdfPredicate
 import net.akehurst.oslc.rdf.api.RdfResource
 import net.akehurst.oslc.rdf.api.RdfStructure
-import net.akehurst.oslc.rdf.api.RdfSubject
-import net.akehurst.oslc.rdf.asm.RdfPredicateDefault
 import net.akehurst.oslc.rdf.asm.RdfResourceDefault
 import net.akehurst.oslc.rdf.asm.RdfStructureDefault
 import net.akehurst.oslc.rdf.turtle.TurtleLanguage

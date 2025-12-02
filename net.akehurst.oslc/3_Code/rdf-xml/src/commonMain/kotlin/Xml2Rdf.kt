@@ -67,11 +67,18 @@ class Xml2Rdf_v1_1(
                 // Check if root is rdf:RDF
                 if (root.tagName() == "rdf:RDF" || root.tagName() == "RDF") {
                     root.traverseRdf(this, baseUri)
+                } else if (root.tagName() == "rdf:Description" || root.tagName() == "Description" ||
+                           root.tagName().contains(":")) {
+                    // Handle case where root is directly a Description or typed node (no rdf:RDF wrapper)
+                    root.processNodeElement(this, baseUri)
                 } else if (root.childElementsList().isNotEmpty()) {
-                    // Handle case where there's no explicit rdf:RDF wrapper
+                    // Handle case where there's an intermediate wrapper element
                     root.childElementsList().forEach { child ->
                         if (child.tagName() == "rdf:RDF" || child.tagName() == "RDF") {
                             child.traverseRdf(this, baseUri)
+                        } else if (child.tagName() == "rdf:Description" || child.tagName() == "Description" ||
+                                   child.tagName().contains(":")) {
+                            child.processNodeElement(this, baseUri)
                         }
                     }
                 }

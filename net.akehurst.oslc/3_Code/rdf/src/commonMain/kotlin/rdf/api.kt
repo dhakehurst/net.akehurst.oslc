@@ -54,7 +54,12 @@ interface RdfPredicate {
     fun asString(): String
 }
 
-interface RdfObject : RdfNode
+interface RdfObject : RdfNode {
+    val asLiteral : RdfLiteral?
+    val asResource : RdfResource?
+    val asBlankNode : RdfBlankNode?
+    val asCollection : RdfCollection?
+}
 
 interface RdfBlankNode : RdfSubject, RdfObject {
     val label: String
@@ -107,7 +112,7 @@ interface RdfStructure {
     fun getPropertyFirstAsRdfStructureOrNull(propertyName:String): RdfStructure?
     fun getPropertyFirstAsRdfStructure(propertyName:String): RdfStructure
 
-    fun getPropertyAllAsList(propertyName:String): List<List<Any>>
+    fun getPropertyAllAsList(propertyName:String): List<Any>
     fun getPropertyFirstAsListOrNull(propertyName:String): List<Any>?
     fun getPropertyFirstAsList(propertyName:String): List<Any>
 

@@ -20,6 +20,7 @@ package net.akehurst.oslc.core.auth.oauth_1_0a
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.cookies.*
+import io.ktor.http.Url
 import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import kotlin.test.Test
 
@@ -37,8 +38,9 @@ class test_OAuth_1_0a_plugin {
                 oauthRequestTokenUrl("")
                 userAuthorizeCallbackUrl("")
                 oauthAccessTokenUrl("")
+                realm("")
                 userAuthorize { client, token ->
-                    waitForCallbackUsingKtorCIOEngineAndOpenUrl("",token)
+                    waitForCallbackUsingKtorCIOEngineAndOpenUrl(Url(""),token)
                 }
             }
         }

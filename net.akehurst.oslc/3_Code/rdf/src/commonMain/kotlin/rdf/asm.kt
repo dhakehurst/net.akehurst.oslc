@@ -81,6 +81,11 @@ data class RdfBlankNodeDefault(
 
     constructor() : this($$"$blank$${counter++}")
 
+    override val asBlankNode: RdfBlankNode? get() = this
+    override val asLiteral: RdfLiteral? get() = null
+    override val asResource: RdfResource? get() = null
+    override val asCollection: RdfCollection? get() = null
+
     override fun asString(): String {
         return "_:$label"
     }
@@ -92,6 +97,11 @@ data class RdfLiteralDefault(
     override val tag: String?
 ) : RdfLiteral {
 
+    override val asBlankNode: RdfBlankNode? get() = null
+    override val asLiteral: RdfLiteral? get() = this
+    override val asResource: RdfResource? get() = null
+    override val asCollection: RdfCollection? get() = null
+
     override fun asString(): String = when (type) {
         "STRING" -> "'$value'${tag ?: ""}"
         else -> "$value${tag ?: ""}"
@@ -101,6 +111,12 @@ data class RdfLiteralDefault(
 data class RdfResourceDefault(
     override val iri: String
 ) : RdfResource {
+
+    override val asBlankNode: RdfBlankNode? get() = null
+    override val asLiteral: RdfLiteral? get() = null
+    override val asResource: RdfResource? get() = this
+    override val asCollection: RdfCollection? get() = null
+
     override fun asString(): String {
         return iri
     }
@@ -109,6 +125,12 @@ data class RdfResourceDefault(
 data class RdfCollectionDefault(
     override val elements: List<RdfNode>
 ) : RdfCollection {
+
+    override val asBlankNode: RdfBlankNode? get() = null
+    override val asLiteral: RdfLiteral? get() = null
+    override val asResource: RdfResource? get() = null
+    override val asCollection: RdfCollection? get() = this
+
     override fun asString(): String {
         return elements.joinToString(prefix = "( ", separator = " ", postfix = " )") { it.asString() }
     }
@@ -163,11 +185,10 @@ data class RdfStructureDefault(
             else -> error("should not happen")
         }
 
-    override val propertyValue: Map<String, List<Any>>
-        get() {
+    override val propertyValue: Map<String, List<Any>> by lazy {
             val triples = graph.findTripleWithSubject(subject)
             val groups = triples.groupBy { it.predicate.iri }
-            return groups.entries.associate { (k, v) ->
+            groups.entries.associate { (k, v) ->
                 val name = k
                 val list = v.map {
                     val obj = it.object_
@@ -177,29 +198,29 @@ data class RdfStructureDefault(
             }
         }
 
-    override fun getPropertyAllAsString(propertyName:String): List<String> = propertyValue[propertyName] as? List<String> ?: emptyList()
-    override fun getPropertyFirstAsStringOrNull(propertyName:String): String? = getPropertyAllAsString(propertyName).firstOrNull()
-    override fun getPropertyFirstAsString(propertyName:String): String = getPropertyAllAsString(propertyName).first()
+    override fun getPropertyAllAsString(propertyName: String): List<String> = propertyValue[propertyName] as? List<String> ?: emptyList()
+    override fun getPropertyFirstAsStringOrNull(propertyName: String): String? = getPropertyAllAsString(propertyName).firstOrNull()
+    override fun getPropertyFirstAsString(propertyName: String): String = getPropertyAllAsString(propertyName).first()
 
-    override fun getPropertyAllAsInteger(propertyName:String): List<Int> = propertyValue[propertyName] as? List<Int> ?: emptyList()
-    override fun getPropertyFirstAsIntegerOrNull(propertyName:String): Int? = getPropertyAllAsInteger(propertyName).firstOrNull()
-    override fun getPropertyFirstAsInteger(propertyName:String): Int = getPropertyAllAsInteger(propertyName).first()
+    override fun getPropertyAllAsInteger(propertyName: String): List<Int> = propertyValue[propertyName] as? List<Int> ?: emptyList()
+    override fun getPropertyFirstAsIntegerOrNull(propertyName: String): Int? = getPropertyAllAsInteger(propertyName).firstOrNull()
+    override fun getPropertyFirstAsInteger(propertyName: String): Int = getPropertyAllAsInteger(propertyName).first()
 
-    override fun getPropertyAllAsDouble(propertyName:String): List<Double> = propertyValue[propertyName] as? List<Double> ?: emptyList()
-    override fun getPropertyFirstAsDoubleOrNull(propertyName:String): Double? = getPropertyAllAsDouble(propertyName).firstOrNull()
-    override fun getPropertyFirstAsDouble(propertyName:String): Double = getPropertyAllAsDouble(propertyName).first()
+    override fun getPropertyAllAsDouble(propertyName: String): List<Double> = propertyValue[propertyName] as? List<Double> ?: emptyList()
+    override fun getPropertyFirstAsDoubleOrNull(propertyName: String): Double? = getPropertyAllAsDouble(propertyName).firstOrNull()
+    override fun getPropertyFirstAsDouble(propertyName: String): Double = getPropertyAllAsDouble(propertyName).first()
 
-    override fun getPropertyAllAsBoolean(propertyName:String): List<Boolean> = propertyValue[propertyName] as? List<Boolean> ?: emptyList()
-    override fun getPropertyFirstAsBooleanOrNull(propertyName:String): Boolean? = getPropertyAllAsBoolean(propertyName).firstOrNull()
-    override fun getPropertyFirstAsBoolean(propertyName:String): Boolean = getPropertyAllAsBoolean(propertyName).first()
+    override fun getPropertyAllAsBoolean(propertyName: String): List<Boolean> = propertyValue[propertyName] as? List<Boolean> ?: emptyList()
+    override fun getPropertyFirstAsBooleanOrNull(propertyName: String): Boolean? = getPropertyAllAsBoolean(propertyName).firstOrNull()
+    override fun getPropertyFirstAsBoolean(propertyName: String): Boolean = getPropertyAllAsBoolean(propertyName).first()
 
-    override fun getPropertyAllAsRdfStructure(propertyName:String): List<RdfStructure> = propertyValue[propertyName] as? List<RdfStructure> ?: emptyList()
-    override fun getPropertyFirstAsRdfStructureOrNull(propertyName:String): RdfStructure? = getPropertyAllAsRdfStructure(propertyName).firstOrNull()
-    override fun getPropertyFirstAsRdfStructure(propertyName:String): RdfStructure = getPropertyAllAsRdfStructure(propertyName).first()
+    override fun getPropertyAllAsRdfStructure(propertyName: String): List<RdfStructure> = propertyValue[propertyName] as? List<RdfStructure> ?: emptyList()
+    override fun getPropertyFirstAsRdfStructureOrNull(propertyName: String): RdfStructure? = getPropertyAllAsRdfStructure(propertyName).firstOrNull()
+    override fun getPropertyFirstAsRdfStructure(propertyName: String): RdfStructure = getPropertyAllAsRdfStructure(propertyName).first()
 
-    override fun getPropertyAllAsList(propertyName:String): List<List<Any>> = propertyValue[propertyName] as? List<List<Any>> ?: emptyList()
-    override fun getPropertyFirstAsListOrNull(propertyName:String): List<Any>? = getPropertyAllAsList(propertyName).firstOrNull()
-    override fun getPropertyFirstAsList(propertyName:String): List<Any> = getPropertyAllAsList(propertyName).first()
+    override fun getPropertyAllAsList(propertyName: String): List<Any> = propertyValue[propertyName] as? List<Any> ?: emptyList()
+    override fun getPropertyFirstAsListOrNull(propertyName: String): List<Any>? = propertyValue[propertyName] as? List<Any>
+    override fun getPropertyFirstAsList(propertyName: String): List<Any> = getPropertyAllAsList(propertyName)
 
     override fun asString(): String {
         val sb = StringBuilder()

@@ -18,6 +18,7 @@
 package net.akehurst.oslc.core.util
 
 import io.ktor.http.Parameters
+import io.ktor.http.Url
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
@@ -43,9 +44,15 @@ fun generateHmacSha1Signature(data: String, key: String): String {
 //@OptIn(ExperimentalUuidApi::class)
 //fun generateNonce(): String = kotlin.uuid.Uuid.random().toString().replace("-", "")
 
-suspend fun waitForCallbackUsingKtorCIOEngineAndOpenUrl(oauthUserAuthorizationUrl: String, request_token: String) = coroutineScope {
-    val callback = async { waitForCallbackUsingKtorCIOEngine(9000, "/callback") }
-    openUrl(oauthUserAuthorizationUrl + "?oauth_token=$request_token")
+suspend fun waitForCallbackUsingKtorCIOEngineAndOpenUrl(
+    oauthUserAuthorizationUrl: Url,
+    request_token: String,
+    callbackHost: String = "127.0.0.1",
+    callbackPort: Int = 9000,
+    callbackPath: String = "/callback"
+) = coroutineScope {
+    val callback = async { waitForCallbackUsingKtorCIOEngine(callbackHost, callbackPort, callbackPath) }
+    openUrl("$oauthUserAuthorizationUrl?oauth_token=$request_token")
     val params = callback.await()
     params["oauth_verifier"]!![0]
 }
@@ -54,9 +61,9 @@ suspend fun waitForCallbackUsingKtorCIOEngineAndOpenUrl(oauthUserAuthorizationUr
  * Sets up an io.ktor.server.cio.CIO embeddedServer listening on the given port and path.
  * Will stop the server and return params when they are received.
  */
-suspend fun waitForCallbackUsingKtorCIOEngine(port: Int, path: String) = coroutineScope {
+suspend fun waitForCallbackUsingKtorCIOEngine(server: String, port: Int, path: String) = coroutineScope {
     val receivedParams = CompletableDeferred<Parameters>()
-    val server = embeddedServer(io.ktor.server.cio.CIO, port = port, host = "127.0.0.1") {
+    val server = embeddedServer(io.ktor.server.cio.CIO, port = port, host = server) {
         routing {
             get(path) {
                 val params = call.request.queryParameters
@@ -65,7 +72,7 @@ suspend fun waitForCallbackUsingKtorCIOEngine(port: Int, path: String) = corouti
             }
         }
     }
-    val serverJob = launch { server.start(wait = false) }
+    val serverJob = launch { server.startSuspend(wait = false) }
     val params = receivedParams.await()
     server.stop(100, 100)
     serverJob.cancel()

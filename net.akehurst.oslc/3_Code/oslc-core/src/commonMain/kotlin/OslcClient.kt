@@ -15,7 +15,7 @@
  *
  */
 
-package net.akehurst.oslc.v3_0.core
+package net.akehurst.oslc.core
 
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -25,37 +25,46 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import net.akehurst.oslc.api.OslcClient
+import net.akehurst.oslc.api.RdfContentType
+import net.akehurst.oslc.core.auth.oauth_1_0a.OAuth_1_0a
+import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import net.akehurst.oslc.rdf.api.RdfGraph
 import net.akehurst.oslc.rdf.api.RdfStructure
 import net.akehurst.oslc.rdf.turtle.TurtleLanguage
 import net.akehurst.oslc.rdf.xml.Xml2Rdf_v1_1
-import net.akehurst.oslc.v3_0.api.*
 
-fun oslcClient_v3_0(
+fun oslcClient(
     httpClient: HttpClient = HttpClient(CIO),
-    baseUrl: String,
+    baseUrl: Url,
     rootservices: String = "/rootservices",
     requestBuilder: HttpRequestBuilder.() -> Unit = {}
-): OslcClient = OslcClient_v3_0(httpClient, baseUrl, rootservices, requestBuilder)
+): OslcClient = OslcClient(httpClient, baseUrl, rootservices, requestBuilder)
 
-class OslcClient_v3_0(
-    val httpClient: HttpClient,
-    override val baseUrl: String,
+class OslcClient(
+    initialHttpClient: HttpClient,
+    override val baseUrl: Url,
     val rootservices: String,
     val requestBuilder: HttpRequestBuilder.() -> Unit
 ) : OslcClient {
 
     override val issues = mutableListOf<String>()
 
+    var httpClient: HttpClient = initialHttpClient
+
     override suspend fun rootServicesGraph(): RdfGraph? {
-        val rsUrl = baseUrl + rootservices
+        val rsUrl = Url(baseUrl.toString() + rootservices)
         return fetchRdfGraphFromUrl(rsUrl)
     }
 
-    override suspend fun rootServicesStructure(): RdfStructure? =
-        rootServicesGraph()?.asModel()?.findStructureWithIdentity("${baseUrl + rootservices}")
+    override suspend fun rootServicesStructure(): RdfStructure? {
+        val rdf = rootServicesGraph()
+        val mdl = rdf?.asModel()
+        val res = mdl?.findStructureWithIdentity(baseUrl.toString() + rootservices)
+        return res
+    }
 
-    override suspend fun fetchRdfGraphFromUrl(url: String): RdfGraph? {
+    override suspend fun fetchRdfGraphFromUrl(url: Url): RdfGraph? {
         val response = httpClient.get(url) {
             requestBuilder.invoke(this)
         }
@@ -99,4 +108,41 @@ class OslcClient_v3_0(
         }
     }
 
+    override fun authoriseBasic(username: String, password: String, realm:String?) {
+        this.httpClient = httpClient.config {
+            install(Auth) {
+                basic {
+                    credentials {
+                        BasicAuthCredentials(username = username, password = password)
+                    }
+                    sendWithoutRequest { true }
+                    realm?.let { this.realm = it }
+                }
+            }
+        }
+    }
+
+    override fun authoriseOauth_1_0a(
+        consumerKey: String,
+        consumerSecret: String,
+        oauthRequestTokenUrl: Url,
+        oauthUserAuthorizationUrl: Url,
+        userAuthorizeCallbackUrl: Url,
+        oauthAccessTokenUrl: Url,
+        realm: String?,
+    ) {
+        this.httpClient = httpClient.config {
+            install(OAuth_1_0a) {
+                consumerKey(consumerKey)
+                consumerSecret(consumerSecret)
+                oauthRequestTokenUrl(oauthRequestTokenUrl.toString())
+                userAuthorizeCallbackUrl(userAuthorizeCallbackUrl.toString())
+                oauthAccessTokenUrl(oauthAccessTokenUrl.toString())
+                userAuthorize { client, token ->
+                    waitForCallbackUsingKtorCIOEngineAndOpenUrl(oauthUserAuthorizationUrl,token,userAuthorizeCallbackUrl.host,userAuthorizeCallbackUrl.port, userAuthorizeCallbackUrl.fullPath)
+                }
+                realm(realm)
+            }
+        }
+    }
 }

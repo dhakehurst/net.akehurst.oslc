@@ -31,4 +31,9 @@ object OslcCoreConstants {
     const val vs = "http://www.w3.org/2003/06/sw-vocab-status/ns#"
     const val xsd = "http://www.w3.org/2001/XMLSchema#"
 
+    const val config: String = "http://open-services.net/ns/config#"
+    const val cm_v2: String = "http://open-services.net/ns/cm#"
+    const val am_v2: String = "http://open-services.net/ns/am#"
+    const val qm_v2: String = "http://open-services.net/ns/qm#"
+    const val rm_v2: String = "http://open-services.net/ns/rm#"
 }
