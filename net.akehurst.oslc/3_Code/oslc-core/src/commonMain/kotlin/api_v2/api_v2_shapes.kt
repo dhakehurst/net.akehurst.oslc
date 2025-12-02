@@ -17,6 +17,7 @@
 
 package net.akehurst.oslc.api.v2_0.shapes
 
+import io.ktor.http.Url
 import net.akehurst.oslc.api.v2_0.common.*
 
 // https://archive.open-services.net/bin/view/Main/OslcCoreSpecification.html#Resource_Service_Provider
@@ -28,10 +29,10 @@ import net.akehurst.oslc.api.v2_0.common.*
 interface ServiceProviderCatalog {
     val title: String?
     val description: String?
-    val publisher: LocalResource?
-    val domain: List<Resource>
-    val serviceProvider: List<ServiceProvider>
-    val serviceProviderCatalog: List<ServiceProviderCatalog>
+    val publisher: Publisher?
+    val domain: List<Resource<Url>>
+    val serviceProvider: List<Resource<ServiceProvider>>
+    val serviceProviderCatalog: List<Resource<ServiceProviderCatalog>>
     val oauthConfiguration: List<OAuthConfiguration>
 
     fun asString(): String
@@ -40,13 +41,19 @@ interface ServiceProviderCatalog {
 interface ServiceProvider {
     val title: String?
     val description: String?
-    val details : Resource?
-    val service: AnyResource
-    val publisher: AnyResource
-    val prefixDefinition: AnyResource
-    val oauthConfiguration: AnyResource
+    val details : Resource<ServiceProvider>?
+    val service: Service
+    val publisher: Publisher
+    val prefixDefinition: PrefixDefinition
+    val oauthConfiguration: OAuthConfiguration
 
     fun asString(): String
 }
 
 interface OAuthConfiguration
+
+interface Publisher
+
+interface Service
+
+interface PrefixDefinition

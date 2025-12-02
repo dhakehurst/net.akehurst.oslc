@@ -49,5 +49,6 @@ interface OslcClient {
         oauthAccessTokenUrl: Url,
         realm: String?,
     )
+
 }
 
