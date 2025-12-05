@@ -39,9 +39,9 @@ fun oslcClient(
     baseUrl: Url,
     rootservices: String = "/rootservices",
     requestBuilder: HttpRequestBuilder.() -> Unit = {}
-): OslcClient = OslcClient(httpClient, baseUrl, rootservices, requestBuilder)
+): OslcClient = OslcClientDefault(httpClient, baseUrl, rootservices, requestBuilder)
 
-class OslcClient(
+internal class OslcClientDefault(
     initialHttpClient: HttpClient,
     override val baseUrl: Url,
     val rootservices: String,

@@ -122,7 +122,7 @@ class test_impl_rdf_v2 {
         val sp = sut.serviceProvider.first().value!!
 
         val client = oslcClient(
-            baseUrl = Url("..."),
+            baseUrl = Url("https://doorsng-7.somewhere.com:9443/rm"),
         )
         val spdetails = sp.details?.fetch(client)!!
         println(spdetails)

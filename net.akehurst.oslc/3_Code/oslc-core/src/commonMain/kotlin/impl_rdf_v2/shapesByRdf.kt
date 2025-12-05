@@ -25,6 +25,8 @@ import net.akehurst.oslc.api.v2_0.common.*
 import net.akehurst.oslc.api.v2_0.shapes.*
 import net.akehurst.oslc.rdf.asm.RdfResourceDefault
 
+//TODO: use constants and resolved prefixes for property IRIs
+
 data class ResourceByRdf<T : Any>(
     val rdf: RdfResource,
     override val value: T?,
@@ -42,6 +44,7 @@ data class ResourceByRdf<T : Any>(
 data class ServiceProviderCatalogRdf(
     val rdf: RdfStructure
 ) : ServiceProviderCatalog {
+    override val about: Url by lazy { Url(rdf.identity) }
     override val title: String? by lazy { rdf.getPropertyFirstAsStringOrNull("dcterms:title") }
     override val description: String? by lazy { rdf.getPropertyFirstAsStringOrNull("dcterms:description") }
     override val domain: List<Resource<Url>> get() = TODO("not implemented")
@@ -62,6 +65,7 @@ data class ServiceProviderCatalogRdf(
 
     override fun asString(): String = """
         ServiceProviderCatalog:
+            about: $about
             title: $title
             description: $description
             serviceProviders: [
@@ -75,11 +79,15 @@ data class ServiceProviderCatalogRdf(
 data class ServiceProviderRdf(
     val rdf: RdfStructure
 ) : ServiceProvider {
-    override val title: String? by lazy { rdf.getPropertyFirstAsString("dcterms:title") }
-    override val description: String? by lazy { rdf.getPropertyFirstAsString("dcterms:description") }
+    override val about: Url by lazy { Url(rdf.identity) }
+    override val title: String? by lazy { rdf.getPropertyFirstAsStringOrNull("dcterms:title") }
+    override val description: String? by lazy { rdf.getPropertyFirstAsStringOrNull("dcterms:description") }
     override val details: Resource<ServiceProvider>? by lazy {
-        val iri = rdf.getPropertyFirstAsRdfStructure("oslc_disc:details").identity
-        ResourceByRdf(RdfResourceDefault(iri), null) { ServiceProviderRdf(it) }
+        val str = rdf.getPropertyFirstAsRdfStructureOrNull("oslc:details")
+            ?: rdf.getPropertyFirstAsRdfStructureOrNull("oslc_disc:details") // for legacy (Jazz uses this)
+        str?.let {
+            ResourceByRdf(RdfResourceDefault(str.identity), null) { ServiceProviderRdf(it) }
+        }
     }
     override val service: Service get() = TODO("not implemented")
     override val prefixDefinition: PrefixDefinition get() = TODO("not implemented")
@@ -87,6 +95,7 @@ data class ServiceProviderRdf(
     override val oauthConfiguration: OAuthConfiguration get() = TODO("not implemented")
     override fun asString(): String = """
         ServiceProvider:
+            about: $about
             title: $title
             description: $description
             details: $details

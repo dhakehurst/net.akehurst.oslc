@@ -27,6 +27,7 @@ import net.akehurst.oslc.api.v2_0.common.*
  * Service Provider Catalog
  */
 interface ServiceProviderCatalog {
+    val about: Url
     val title: String?
     val description: String?
     val publisher: Publisher?
@@ -39,6 +40,7 @@ interface ServiceProviderCatalog {
 }
 
 interface ServiceProvider {
+    val about: Url
     val title: String?
     val description: String?
     val details : Resource<ServiceProvider>?
@@ -54,6 +56,8 @@ interface OAuthConfiguration
 
 interface Publisher
 
-interface Service
+interface Service {
+    val domain: Resource<Url>
+}
 
 interface PrefixDefinition
