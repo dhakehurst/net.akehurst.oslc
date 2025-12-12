@@ -18,12 +18,14 @@
 package net.akehurst.oslc.core.auth
 
 import io.ktor.client.*
+import io.ktor.client.call.body
 import io.ktor.client.plugins.auth.providers.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import net.akehurst.kotlin.json.Json
+import kotlinx.serialization.json.Json
 
 /**
  * AuthService interactions with the Jazz Authorization Server (JAS) for OAuth 2.0.
@@ -70,7 +72,7 @@ class AuthServiceJazz(
         }
 
         return if (response.status.isSuccess()) {
-            val resp = decodeJson(response.bodyAsText())
+            val resp = response.body<TokenResponse>()
             if (resp.access_token == null) {
                 null
             } else {
@@ -106,7 +108,7 @@ class AuthServiceJazz(
         }
 
         return if (response.status.isSuccess()) {
-            val resp = decodeJson(response.bodyAsText())
+            val resp = response.body<TokenResponse>()
             if (resp.access_token == null) {
                 null
             } else {
@@ -130,14 +132,5 @@ class AuthServiceJazz(
             "${key.encodeURLParameter()}=${value.encodeURLParameter()}"
         }
 
-    private fun decodeJson(jsonString: String): TokenResponse {
-        val json = Json.process(jsonString)
-        return TokenResponse(
-            access_token = json.root.asObject().property["access_token"]?.asString()?.value,
-            token_type = json.root.asObject().property["token_type"]?.asString()?.value,
-            expires_in = json.root.asObject().property["expires_in"]?.asNumber()?.toInt(),
-            refresh_token = json.root.asObject().property["refresh_token"]?.asString()?.value,
-            scope = json.root.asObject().property["scope"]?.asString()?.value,
-        )
-    }
+
 }

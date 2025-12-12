@@ -26,13 +26,9 @@ import io.ktor.server.engine.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.util.*
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import net.akehurst.kotlinx.logging.api.logger
 import net.akehurst.oslc.core.util.generateHmacSha1Signature
-import net.akehurst.oslc.core.util.openUrl
+import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import kotlin.collections.plus
 import kotlin.time.Clock
 
@@ -52,38 +48,38 @@ private val logger = logger("oauth_1_0a")
 suspend fun HttpClient.oauth_1_0a_dance(
     consumerKey: String,
     consumerSecret: String,
-    oauthRequestTokenUrl: String,
-    userAuthorizeCallbackUrl: String,
-    oauthAccessTokenUrl: String,
+    userAuthorizeCallbackUrl: Url,
+    authorizeUrl: Url,
+    requestTokenUrl: Url,
+    accessTokenUrl: Url,
     requestTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
     additionalRequestTokenParameters: Map<String, String> = emptyMap(),
     accessTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader,
     additionalAccessTokenParameters: Map<String, String> = emptyMap(),
     realm: String?,
     /** Must respond with the verification_code */
-    userAuthorize: suspend (client: HttpClient, oauth_token: String) -> String,
+    userAuthorize: suspend (authorizeUrl:Url, oauth_token: String) -> String,
 ): Pair<String, String> {
 
     // 1. The Consumer obtains an unauthorized Request Token.
     val (request_token, request_token_secret) = let {
         val oauthRequestParameters = mutableMapOf(
-            "oauth_callback" to userAuthorizeCallbackUrl,
+            "oauth_callback" to userAuthorizeCallbackUrl.toString(),
             "oauth_consumer_key" to consumerKey,
             "oauth_nonce" to generateNonce(),
             "oauth_signature_method" to "HMAC-SHA1",
             "oauth_timestamp" to Clock.System.now().epochSeconds.toString(),
             "oauth_version" to "1.0",
-
             ) + (realm?.let { mapOf("realm" to it) } ?: emptyMap()) + additionalRequestTokenParameters
         val oauthRequestParametersSorted = oauthRequestParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
-        val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthRequestTokenUrl, oauthRequestParametersSorted)
+        val signatureBaseString = createSignatureBaseString(HttpMethod.Post, requestTokenUrl.toString(), oauthRequestParametersSorted)
         val signingKey = "${consumerSecret.encodeOAuth()}&"
         val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
 
         val (unauthorizedResponse, errors) = let {
             val finalParameters = oauthRequestParameters + Pair("oauth_signature", signature)
-            logger.logTrace { "Obtain an unauthorized Request Token: POST $oauthRequestTokenUrl (parameters via $requestTokenParameterMethod) parameters: $finalParameters" }
-            val requestTokenResponse = this.post(oauthRequestTokenUrl) {
+            logger.logTrace { "Obtain an unauthorized Request Token: POST $requestTokenUrl (parameters via $requestTokenParameterMethod) parameters: $finalParameters" }
+            val requestTokenResponse = this.post(requestTokenUrl) {
                 addParameters(requestTokenParameterMethod, finalParameters)
             }
             if (requestTokenResponse.status.isSuccess()) {
@@ -104,7 +100,7 @@ suspend fun HttpClient.oauth_1_0a_dance(
     // 2. The Consumer directs the Resource Owner to the Authorization page.
     // the mechnaism to do this depends on the application it is executed in
     // typically need to open a webbrowser and get the verification code from the callback
-    val oauth_verifier = userAuthorize.invoke(this, request_token)
+    val oauth_verifier = userAuthorize.invoke(authorizeUrl, request_token)
 
     //3. The Consumer exchanges the Request Token for an Access Token.
     return let {
@@ -118,13 +114,13 @@ suspend fun HttpClient.oauth_1_0a_dance(
             "oauth_version" to "1.0",
         ) + (realm?.let { mapOf("realm" to it) } ?: emptyMap()) + additionalAccessTokenParameters
         val oauthAccessParametersSorted = oauthAccessParameters.entries.sortedBy { it.key }.associate { it.key to it.value }
-        val signatureBaseString = createSignatureBaseString(HttpMethod.Post, oauthAccessTokenUrl, oauthAccessParametersSorted)
+        val signatureBaseString = createSignatureBaseString(HttpMethod.Post, accessTokenUrl.toString(), oauthAccessParametersSorted)
         val signingKey = "${consumerSecret.encodeOAuth()}&${request_token_secret.decodeURLPart().encodeOAuth()}"
         val signature = generateHmacSha1Signature(signatureBaseString, signingKey)
         val (authorizedResponse, errors) = let {
             val finalParameters = oauthAccessParameters + Pair("oauth_signature", signature)
-            logger.logTrace { "Exchange the Request Token for an Access Token: POST $oauthAccessTokenUrl (parameters via $accessTokenParameterMethod) parameters: $finalParameters" }
-            val accessTokenResponse = this.post(oauthAccessTokenUrl) {
+            logger.logTrace { "Exchange the Request Token for an Access Token: POST $accessTokenUrl (parameters via $accessTokenParameterMethod) parameters: $finalParameters" }
+            val accessTokenResponse = this.post(accessTokenUrl) {
                 addParameters(accessTokenParameterMethod, finalParameters)
             }
             if (accessTokenResponse.status.isSuccess()) {
@@ -194,17 +190,23 @@ fun HttpRequestBuilder.oauth1_0a_sign(
 class OAuth_1_0a_Config {
     internal var _consumerKey: String? = null
     internal var _consumerSecret: String? = null
-    internal var _oauthRequestTokenUrl: String? = null
-    internal var _userAuthorizeCallbackUrl: String? = null
-    internal var _oauthAccessTokenUrl: String? = null
+    internal var _authorizeUrl: Url? = null
+    internal var _oauthRequestTokenUrl: Url? = null
+    internal var _userAuthorizeCallbackUrl: Url? = null
+    internal var _oauthAccessTokenUrl: Url? = null
     internal var _realm: String? = null
 
     internal var _requestTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
     internal var _additionalRequestTokenParameters: Map<String, String> = emptyMap()
     internal var _accessTokenParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
     internal var _additionalAccessTokenParameters: Map<String, String> = emptyMap()
-    internal var _userAuthorize: (suspend (client: HttpClient, oauth_token: String) -> String)? = null
     internal var _signProtectedParameterMethod: ConsumerRequestParameterMethod = ConsumerRequestParameterMethod.HttpAuthorizationHeader
+    internal var _userAuthorize: (suspend (authorizeUrl:Url, oauth_token: String) -> String)? = { authorizeUrl, oauth_token ->
+        waitForOAuth_1_0a_CallbackUsingKtorCIOEngineAndOpenUrl(
+            authorizationUrl = authorizeUrl,
+            oauth_token = oauth_token
+        )
+    }
 
     // cached values
     internal var _accessToken: String? = null
@@ -218,15 +220,19 @@ class OAuth_1_0a_Config {
         _consumerSecret = value
     }
 
-    fun oauthRequestTokenUrl(value: String) {
-        _oauthRequestTokenUrl = value
-    }
-
-    fun userAuthorizeCallbackUrl(value: String) {
+    fun userAuthorizeCallbackUrl(value: Url) {
         _userAuthorizeCallbackUrl = value
     }
 
-    fun oauthAccessTokenUrl(value: String) {
+    fun authorizeUrl(value: Url) {
+        _authorizeUrl = value
+    }
+
+    fun requestTokenUrl(value: Url) {
+        _oauthRequestTokenUrl = value
+    }
+
+    fun accessTokenUrl(value: Url) {
         _oauthAccessTokenUrl = value
     }
 
@@ -250,13 +256,29 @@ class OAuth_1_0a_Config {
         _additionalAccessTokenParameters = value
     }
 
-    fun userAuthorize(value: suspend (client: HttpClient, oauth_token: String) -> String) {
+    fun userAuthorize(value: suspend (authorizeUrl:Url, oauth_token: String) -> String) {
         _userAuthorize = value
     }
 
     fun signProtectedParameterMethod(value: ConsumerRequestParameterMethod) {
         _signProtectedParameterMethod = value
     }
+}
+
+suspend fun waitForOAuth_1_0a_CallbackUsingKtorCIOEngineAndOpenUrl(
+    callbackHost: String = "127.0.0.1",
+    callbackPort: Int = 9000,
+    callbackPath: String = "/callback",
+    authorizationUrl: Url,
+    oauth_token:String
+):String {
+    val result = waitForCallbackUsingKtorCIOEngineAndOpenUrl(
+        callbackHost, callbackPort, callbackPath,
+        authorizationUrl
+    ) {
+        append("oauth_token", oauth_token)
+    }
+    return result["oauth_verifier"]!![0]
 }
 
 val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a", ::OAuth_1_0a_Config) {
@@ -272,7 +294,8 @@ val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a
             if (null == config._accessToken || null == config._accessTokenSecret) {
                 val oauthRequestTokenUrl = config._oauthRequestTokenUrl ?: error("oauthRequestTokenUrl not set")
                 val userAuthorizeCallbackUrl = config._userAuthorizeCallbackUrl ?: error("userAuthorizeCallbackUrl not set")
-                val oauthAccessTokenUrl = config._oauthAccessTokenUrl ?: error("oauthAccessTokenUrl not set")
+                val authorizeUrl = config._authorizeUrl ?: error("authorizeUrl not set")
+                val accessTokenUrl = config._oauthAccessTokenUrl ?: error("oauthAccessTokenUrl not set")
                 val requestTokenParameterMethod = config._requestTokenParameterMethod
                 val additionalRequestTokenParameters = config._additionalRequestTokenParameters
                 val accessTokenParameterMethod = config._accessTokenParameterMethod
@@ -281,9 +304,10 @@ val OAuth_1_0a: ClientPlugin<OAuth_1_0a_Config> = createClientPlugin("OAuth_1_0a
                 val (access_token, access_secret) = HttpClient(clientEngine).oauth_1_0a_dance(
                     consumerKey = consumerKey,
                     consumerSecret = consumerSecret,
-                    oauthRequestTokenUrl = oauthRequestTokenUrl,
                     userAuthorizeCallbackUrl = userAuthorizeCallbackUrl,
-                    oauthAccessTokenUrl = oauthAccessTokenUrl,
+                    authorizeUrl = authorizeUrl,
+                    requestTokenUrl = oauthRequestTokenUrl,
+                    accessTokenUrl = accessTokenUrl,
                     requestTokenParameterMethod = requestTokenParameterMethod,
                     additionalRequestTokenParameters = additionalRequestTokenParameters,
                     accessTokenParameterMethod = accessTokenParameterMethod,

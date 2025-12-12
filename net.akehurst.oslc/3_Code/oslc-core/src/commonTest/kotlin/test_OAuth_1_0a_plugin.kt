@@ -21,7 +21,6 @@ import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.cookies.*
 import io.ktor.http.Url
-import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import kotlin.test.Test
 
 class test_OAuth_1_0a_plugin {
@@ -35,12 +34,17 @@ class test_OAuth_1_0a_plugin {
             install(OAuth_1_0a) {
                 consumerKey("")
                 consumerSecret("")
-                oauthRequestTokenUrl("")
-                userAuthorizeCallbackUrl("")
-                oauthAccessTokenUrl("")
+                userAuthorizeCallbackUrl(Url(""))
+                requestTokenUrl(Url(""))
+                accessTokenUrl(Url(""))
                 realm("")
-                userAuthorize { client, token ->
-                    waitForCallbackUsingKtorCIOEngineAndOpenUrl(Url(""),token)
+
+                // optional to override
+                userAuthorize { authUrl, token ->
+                    waitForOAuth_1_0a_CallbackUsingKtorCIOEngineAndOpenUrl(
+                        authorizationUrl = authUrl,
+                        oauth_token = token
+                    )
                 }
             }
         }
