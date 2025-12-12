@@ -43,7 +43,7 @@ class test_OAuth_2_0_plugin {
                     tokenUrl(Url(""))
                     clientId("")
                     clientSecret("")
-
+                    scopes("","")
                     loadTokens {
                         //get tokens from secure storage
                         null
