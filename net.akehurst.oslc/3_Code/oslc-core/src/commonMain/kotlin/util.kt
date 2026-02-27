@@ -21,6 +21,7 @@ import io.ktor.http.Parameters
 import io.ktor.http.ParametersBuilder
 import io.ktor.http.URLBuilder
 import io.ktor.http.Url
+import io.ktor.server.cio.CIO
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.ApplicationEngineFactory
 import io.ktor.server.engine.embeddedServer
@@ -64,8 +65,14 @@ suspend fun waitForCallbackUsingKtorCIOEngineAndOpenUrl(
     params
 }
 
-/**
- * Sets up an io.ktor.server.cio.CIO embeddedServer listening on the given port and path.
+suspend fun waitForCallbackWithCIOEngine(
+    host: String,
+    port: Int,
+    path: String
+) = waitForCallback(io.ktor.server.cio.CIO, host, port, path)
+
+/*
+ * Sets up an embeddedServer listening on the given port and path.
  * Will stop the server and return params when they are received.
  */
 suspend fun <TEngine : ApplicationEngine, TConfiguration : ApplicationEngine.Configuration> waitForCallback(

@@ -18,16 +18,19 @@
 package net.akehurst.oslc.core.auth.oauth_2_0
 
 import io.ktor.client.HttpClient
+import io.ktor.client.call.NoTransformationFoundException
 import io.ktor.client.call.body
 import io.ktor.client.plugins.auth.AuthConfig
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.headers
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
@@ -138,7 +141,7 @@ fun AuthConfig.oauth2(config: OAuth_2_0_Config.() -> Unit) {
 
     bearer {
         loadTokens {
-            cfg._loadTokens?.invoke()
+            cfg._loadTokens?.invoke() ?: BearerTokens("", null)
         }
 
         refreshTokens {
@@ -204,7 +207,7 @@ private suspend fun performAuthorizationCodeFlow(
     val scopes = cfg._scopes
     val state = cfg._state
 
-    try {
+//    try {
         val authorizationCode = userAuthorize.invoke(clientId, redirectUrl, scopes, authorizeUrl)
         logger.logTrace { "Received authorization code: $authorizationCode" }
         // Exchange code for tokens
@@ -223,9 +226,9 @@ private suspend fun performAuthorizationCodeFlow(
         val tokens = json.decodeFromString<TokenResponse>(tokensStr)
         logger.logTrace { "Obtained access token (expires_in=${tokens.expiresIn})" }
         return BearerTokens(tokens.accessToken, tokens.refreshToken ?: "")
-    } finally {
-
-    }
+//    } catch (e: NoTransformationFoundException) {
+//        throw IllegalStateException("OAuth2 refresh failed: No JSON converter found. Ensure 'install(ContentNegotiation) { json() }' is added to your HttpClient.", e)
+//    }
 }
 
 @OptIn(ExperimentalEncodingApi::class)

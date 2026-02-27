@@ -9,8 +9,8 @@ plugins {
     alias(libs.plugins.kotlin)
     alias(libs.plugins.dokka)
     alias(libs.plugins.buildconfig)
-    `maven-publish`
     signing
+    alias(libs.plugins.vanniktech.maven.publish) apply false
 }
 val kotlin_languageVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
 val kotlin_apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
@@ -24,8 +24,6 @@ repositories {
 group = rootProject.name
 version = libs.versions.project.get()
 project.layout.buildDirectory = File(rootProject.projectDir, ".gradle-build/${project.name}")
-
-fun getProjectProperty(s: String) = project.findProperty(s) as String?
 
 buildConfig {
     val now = Instant.now()
@@ -96,8 +94,6 @@ kotlin {
     }
 }
 
-
-
 tasks.named<Test>("jvmTest") {
     useJUnitPlatform()
     filter {
@@ -111,5 +107,65 @@ tasks.named<Test>("jvmTest") {
             org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED
         )
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+signing {
+    setRequired( {  gradle.taskGraph.hasTask("uploadArchives") })
+    useGpgCmd()
+    val publishing = project.properties["publishing"] as PublishingExtension
+    sign(publishing.publications)
+}
+val signTasks = tasks.matching { it.name.matches(Regex("sign(.)+")) }.toTypedArray()
+tasks.forEach {
+    when {
+        it.name.matches(Regex("publish(.)+")) -> {
+            it.mustRunAfter(*signTasks)
+        }
+    }
+}
+
+mavenPublishing {
+    signAllPublications()
+    publishToMavenCentral(automaticRelease = false)
+
+    coordinates(group as String, project.name, version as String)
+    pom {
+        name.set("AGL Parser, Processor, etc")
+        description.set("Dynamic, scan-on-demand, parsing; when a regular expression is just not enough")
+        url.set("https://medium.com/@dr.david.h.akehurst/a-kotlin-multi-platform-parser-usable-from-a-jvm-or-javascript-59e870832a79")
+
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                name.set("Dr. David H. Akehurst")
+                email.set("dr.david.h@akehurst.net")
+            }
+        }
+        scm {
+            url.set("https://github.com/dhakehurst/net.akehurst.language")
+        }
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "Other"
+            url = uri(providers.gradleProperty("publishTo").orElse("other"))
+            credentials {
+                username = providers.environmentVariable("NEXUS_USER")
+                    .orElse(providers.gradleProperty("NEXUS_USER"))
+                    .orNull
+                password = providers.environmentVariable("NEXUS_PASS")
+                    .orElse(providers.gradleProperty("NEXUS_PASS"))
+                    .orNull
+            }
+        }
     }
 }

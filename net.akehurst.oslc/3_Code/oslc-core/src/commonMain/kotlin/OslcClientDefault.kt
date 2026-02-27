@@ -28,6 +28,7 @@ import io.ktor.http.*
 import net.akehurst.oslc.api.OslcClient
 import net.akehurst.oslc.api.RdfContentType
 import net.akehurst.oslc.core.auth.oauth_1_0a.OAuth_1_0a
+import net.akehurst.oslc.core.auth.oauth_1_0a.waitForOAuth_1_0a_CallbackUsingKtorCIOEngineAndOpenUrl
 import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import net.akehurst.oslc.rdf.api.RdfGraph
 import net.akehurst.oslc.rdf.api.RdfStructure
@@ -135,11 +136,17 @@ internal class OslcClientDefault(
             install(OAuth_1_0a) {
                 consumerKey(consumerKey)
                 consumerSecret(consumerSecret)
-                oauthRequestTokenUrl(oauthRequestTokenUrl.toString())
-                userAuthorizeCallbackUrl(userAuthorizeCallbackUrl.toString())
-                oauthAccessTokenUrl(oauthAccessTokenUrl.toString())
+                requestTokenUrl(oauthRequestTokenUrl)
+                userAuthorizeCallbackUrl(userAuthorizeCallbackUrl)
+                accessTokenUrl(oauthAccessTokenUrl)
                 userAuthorize { client, token ->
-                    waitForCallbackUsingKtorCIOEngineAndOpenUrl(oauthUserAuthorizationUrl,token,userAuthorizeCallbackUrl.host,userAuthorizeCallbackUrl.port, userAuthorizeCallbackUrl.fullPath)
+                    waitForOAuth_1_0a_CallbackUsingKtorCIOEngineAndOpenUrl(
+                        userAuthorizeCallbackUrl.host,
+                        userAuthorizeCallbackUrl.port,
+                        userAuthorizeCallbackUrl.fullPath,
+                        authorizationUrl = oauthUserAuthorizationUrl,
+                        oauth_token =  token
+                    )
                 }
                 realm(realm)
             }
