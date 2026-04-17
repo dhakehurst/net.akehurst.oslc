@@ -18,45 +18,22 @@
 package net.akehurst.oslc.core.auth.oauth_2_0
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.NoTransformationFoundException
-import io.ktor.client.call.body
 import io.ktor.client.plugins.auth.AuthConfig
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.forms.submitForm
-import io.ktor.client.request.headers
-import io.ktor.client.request.parameter
-import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.Parameters
 import io.ktor.http.ParametersBuilder
 import io.ktor.http.URLBuilder
 import io.ktor.http.Url
-import io.ktor.http.isSuccess
 import io.ktor.http.path
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
-import io.ktor.server.routing.routing
-import io.ktor.server.util.url
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import net.akehurst.kotlinx.logging.api.logger
-import net.akehurst.oslc.core.util.openUrl
 import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
-import kotlin.invoke
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.random.Random
 
 
 class OAuth_2_0_Config {
@@ -66,14 +43,21 @@ class OAuth_2_0_Config {
     internal var _tokenUrl: Url? = null
     internal var _redirectUrl: Url? = null
     internal var _scopes: List<String> = emptyList()
-    internal var _state: String? = null
-    internal var _userAuthorize: (suspend (String, Url, List<String>, Url) -> String)? = { clientId, redirectUrl, scopes, authorizeUrl ->
+    internal var _authorizationRequestParameters: ParametersBuilder.() -> Unit = {
+        // these are required for google
+        //append("access_type", "offline")
+        //append("prompt", "consent")
+    }
+    internal var _state: String = generateRandomState()  // Always generate new state for security
+    internal var _userAuthorize: (suspend (String, Url, List<String>, Url, String) -> String)? = { clientId, redirectUrl, scopes, authorizeUrl, state ->
         waitForOAuth_2_0_CallbackUsingKtorCIOEngineAndOpenUrl(
             clientId = clientId,
             callbackHost = redirectUrl.host,
             callbackPort = redirectUrl.port,
             callbackPath = redirectUrl.encodedPath,
             scopes = scopes,
+            state = state,
+            authorizationRequestParameters = _authorizationRequestParameters,
             oauthUserAuthorizationUrl = authorizeUrl
         )
     }
@@ -93,7 +77,7 @@ class OAuth_2_0_Config {
         _authorizeUrl = value
     }
 
-    fun userAuthorize(value: suspend (String, Url, List<String>, Url) -> String) {
+    fun userAuthorize(value: suspend (String, Url, List<String>, Url, String) -> String) {
         _userAuthorize = value
     }
 
@@ -107,6 +91,10 @@ class OAuth_2_0_Config {
 
     fun scopes(vararg values: String) {
         _scopes = values.toList()
+    }
+
+    fun authorizationRequestParameters(value: ParametersBuilder.() -> Unit) {
+        _authorizationRequestParameters = value
     }
 
     fun state(value: String) {
@@ -124,6 +112,14 @@ class OAuth_2_0_Config {
 
 private val logger = logger("oauth_2_0")
 private val json = Json { ignoreUnknownKeys = true }
+
+/**
+ * Generates a cryptographically random state string for CSRF protection.
+ */
+private fun generateRandomState(length: Int = 32): String {
+    val chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
+    return (1..length).map { chars[Random.nextInt(chars.length)] }.joinToString("")
+}
 
 @Serializable
 private data class TokenResponse(
@@ -160,8 +156,8 @@ fun AuthConfig.oauth2(config: OAuth_2_0_Config.() -> Unit) {
         }
 
         sendWithoutRequest { request ->
-            // Send bearer token with all requests (can be customized)
-            true
+            // Send bearer token to all requests except the OAuth callback redirect
+            request.url.host != cfg._redirectUrl?.host
         }
     }
 }
@@ -169,6 +165,8 @@ fun AuthConfig.oauth2(config: OAuth_2_0_Config.() -> Unit) {
 suspend fun waitForOAuth_2_0_CallbackUsingKtorCIOEngineAndOpenUrl(
     clientId: String,
     scopes: List<String>,
+    state: String,
+    authorizationRequestParameters: ParametersBuilder.() -> Unit = {},
     callbackHost: String = "127.0.0.1",
     callbackPort: Int = 9000,
     callbackPath: String = "/callback",
@@ -187,13 +185,28 @@ suspend fun waitForOAuth_2_0_CallbackUsingKtorCIOEngineAndOpenUrl(
         append("redirect_uri", redirectUrl.toString())
         append("response_type", "code")
         append("scope", scopes.joinToString(" "))
-        append("access_type", "offline")
-        append("prompt", "consent")
+        append("state", state)
+        authorizationRequestParameters()
     }
-    return result["code"]!![0]
+
+    // Validate state to prevent CSRF attacks
+    val returnedState = result["state"]?.firstOrNull()
+        ?: error("OAuth callback missing state parameter")
+    if (returnedState != state) {
+        error("OAuth state mismatch: possible CSRF attack detected")
+    }
+
+    // Check for authorization errors
+    val error = result["error"]?.firstOrNull()
+    if (error != null) {
+        val errorDescription = result["error_description"]?.firstOrNull() ?: "Unknown error"
+        error("OAuth authorization failed: $error - $errorDescription")
+    }
+
+    return result["code"]?.firstOrNull()
+        ?: error("OAuth callback missing authorization code")
 }
 
-@OptIn(ExperimentalEncodingApi::class)
 private suspend fun performAuthorizationCodeFlow(
     client: HttpClient,
     cfg: OAuth_2_0_Config
@@ -207,31 +220,29 @@ private suspend fun performAuthorizationCodeFlow(
     val scopes = cfg._scopes
     val state = cfg._state
 
-//    try {
-        val authorizationCode = userAuthorize.invoke(clientId, redirectUrl, scopes, authorizeUrl)
-        logger.logTrace { "Received authorization code: $authorizationCode" }
-        // Exchange code for tokens
-        val tokenResponse = client.post(tokenUrl) {
-            parameter("client_id", clientId)
-            parameter("client_secret", clientSecret)
-            parameter("code", authorizationCode)
-            parameter("grant_type", "authorization_code")
-            parameter("redirect_uri", redirectUrl.toString())
-            parameter("access_type", "offline")
+    val authorizationCode = userAuthorize.invoke(clientId, redirectUrl, scopes, authorizeUrl, state)
+
+    // Exchange code for tokens using form-encoded body (per OAuth 2.0 spec)
+    val tokenResponse = client.submitForm(
+        url = tokenUrl.toString(),
+        formParameters = io.ktor.http.Parameters.build {
+            append("client_id", clientId)
+            append("client_secret", clientSecret)
+            append("code", authorizationCode)
+            append("grant_type", "authorization_code")
+            append("redirect_uri", redirectUrl.toString())
         }
-        val tokensStr = when (tokenResponse.status) {
-            HttpStatusCode.OK -> tokenResponse.bodyAsText()
-            else -> error("Failed to exchange authorization code for tokens: ${tokenResponse.status}")
-        }
-        val tokens = json.decodeFromString<TokenResponse>(tokensStr)
-        logger.logTrace { "Obtained access token (expires_in=${tokens.expiresIn})" }
-        return BearerTokens(tokens.accessToken, tokens.refreshToken ?: "")
-//    } catch (e: NoTransformationFoundException) {
-//        throw IllegalStateException("OAuth2 refresh failed: No JSON converter found. Ensure 'install(ContentNegotiation) { json() }' is added to your HttpClient.", e)
-//    }
+    )
+
+    val tokensStr = when (tokenResponse.status) {
+        HttpStatusCode.OK -> tokenResponse.bodyAsText()
+        else -> error("Failed to exchange authorization code for tokens: ${tokenResponse.status}")
+    }
+    val tokens = json.decodeFromString<TokenResponse>(tokensStr)
+    logger.logTrace { "Obtained access token (expires_in=${tokens.expiresIn})" }
+    return BearerTokens(tokens.accessToken, tokens.refreshToken ?: "")
 }
 
-@OptIn(ExperimentalEncodingApi::class)
 private suspend fun performTokenRefresh(
     client: HttpClient,
     cfg: OAuth_2_0_Config,
@@ -243,16 +254,20 @@ private suspend fun performTokenRefresh(
 
     logger.logTrace { "Refreshing access token" }
 
-    val refreshResponse = client.post(tokenUrl) {
-        parameter("client_id", clientId)
-        parameter("client_secret", clientSecret)
-        parameter("grant_type", "refresh_token")
-        parameter("refresh_token", refreshToken)
+    val refreshResponse = client.submitForm(
+        url = tokenUrl.toString(),
+        formParameters = io.ktor.http.Parameters.build {
+            append("client_id", clientId)
+            append("client_secret", clientSecret)
+            append("grant_type", "refresh_token")
+            append("refresh_token", refreshToken)
+        }
+    )
+    val tokensStr = when (refreshResponse.status) {
+        HttpStatusCode.OK -> refreshResponse.bodyAsText()
+        else -> error("Token refresh failed: ${refreshResponse.status}")
     }
-    val newTokens = when (refreshResponse.status) {
-        HttpStatusCode.OK -> refreshResponse.body<TokenResponse>()
-        else -> error("Unexpected response: $refreshResponse")
-    }
+    val newTokens = json.decodeFromString<TokenResponse>(tokensStr)
 
     logger.logTrace { "Refreshed access token (expires_in=${newTokens.expiresIn})" }
 

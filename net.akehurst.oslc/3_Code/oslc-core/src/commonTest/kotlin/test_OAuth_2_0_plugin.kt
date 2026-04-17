@@ -53,14 +53,15 @@ class test_OAuth_2_0_plugin {
                     }
 
                     //optional overide
-                    userAuthorize { clientId, redirectUrl, scopes, authorizeUrl ->
+                    userAuthorize { clientId, redirectUrl, scopes, authorizeUrl, state ->
                         waitForOAuth_2_0_CallbackUsingKtorCIOEngineAndOpenUrl(
                             clientId = clientId,
                             callbackHost = redirectUrl.host,
                             callbackPort = redirectUrl.port,
                             callbackPath = redirectUrl.encodedPath,
                             scopes = scopes,
-                            oauthUserAuthorizationUrl = authorizeUrl
+                            oauthUserAuthorizationUrl = authorizeUrl,
+                            state = state
                         )
                     }
                 }
