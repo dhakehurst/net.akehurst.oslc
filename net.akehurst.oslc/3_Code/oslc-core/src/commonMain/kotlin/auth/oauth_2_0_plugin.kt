@@ -54,6 +54,7 @@ import kotlinx.serialization.json.Json
 import net.akehurst.kotlinx.logging.api.logger
 import net.akehurst.oslc.core.util.openUrl
 import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
+import kotlin.invoke
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -141,14 +142,13 @@ fun AuthConfig.oauth2(config: OAuth_2_0_Config.() -> Unit) {
 
     bearer {
         loadTokens {
-            cfg._loadTokens?.invoke() ?: BearerTokens("", null)
+            val loaded = cfg._loadTokens?.invoke()
+            if (loaded != null && loaded.accessToken.isNotEmpty()) loaded else null
         }
 
         refreshTokens {
-            val currentTokens = oldTokens ?: return@refreshTokens null
-            val refreshToken = currentTokens.refreshToken
+            val refreshToken = oldTokens?.refreshToken
             if (refreshToken.isNullOrEmpty()) {
-                // No refresh token, perform full authorization flow
                 val newTokens = performAuthorizationCodeFlow(client, cfg)
                 cfg._saveTokens?.invoke(newTokens)
                 newTokens
