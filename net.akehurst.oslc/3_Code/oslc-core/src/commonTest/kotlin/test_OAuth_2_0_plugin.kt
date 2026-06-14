@@ -23,21 +23,20 @@ import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.cookies.AcceptAllCookiesStorage
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.http.Url
-import io.ktor.http.parameters
-import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import kotlin.test.Test
 
 
 class test_OAuth_2_0_plugin {
 
     @Test
-    fun t() {
+    fun AuthorizationCode() {
         HttpClient(CIO) {
             install(HttpCookies) {
                 storage = AcceptAllCookiesStorage()
             }
             install(Auth) {
                 oauth2 {
+                    grantType(OAuth_2_0_GrantType.AuthorizationCode)
                     authorizeUrl(Url(""))
                     redirectUrl(Url(""))
                     tokenUrl(Url(""))
@@ -48,7 +47,7 @@ class test_OAuth_2_0_plugin {
                         //get tokens from secure storage
                         null
                     }
-                    saveTokens { tokens ->
+                    saveTokens { _ ->
                         // store tokens in secure storage
                     }
 
@@ -68,5 +67,34 @@ class test_OAuth_2_0_plugin {
             }
         }
 
+    }
+
+    @Test
+    fun ClientCredentials() {
+        HttpClient(CIO) {
+            install(HttpCookies) {
+                storage = AcceptAllCookiesStorage()
+            }
+            install(Auth) {
+                oauth2 {
+                    grantType(OAuth_2_0_GrantType.ClientCredentials)
+                    clientAuthMethod(OAuth_2_0_ClientAuthMethod.ClientSecretBasic) // for JAMA
+                    tokenUrl(Url(""))
+                    clientId("")
+                    clientSecret("")
+                    scopes("", "")
+                    loadTokens {
+                        // get tokens from secure storage
+                        null
+                    }
+                    saveTokens { _ ->
+                        // store tokens in secure storage
+                    }
+                    tokenRequestParameters {
+                        // optional provider-specific token params
+                    }
+                }
+            }
+        }
     }
 }

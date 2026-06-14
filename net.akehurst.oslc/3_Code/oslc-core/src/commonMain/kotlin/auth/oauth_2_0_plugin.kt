@@ -22,7 +22,9 @@ import io.ktor.client.plugins.auth.AuthConfig
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.ParametersBuilder
 import io.ktor.http.URLBuilder
@@ -34,6 +36,23 @@ import kotlinx.serialization.json.Json
 import net.akehurst.kotlinx.logging.api.logger
 import net.akehurst.oslc.core.util.waitForCallbackUsingKtorCIOEngineAndOpenUrl
 import kotlin.random.Random
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+
+enum class OAuth_2_0_GrantType {
+    AuthorizationCode,
+    ClientCredentials
+}
+
+/**
+ * How the OAuth client authenticates to the token endpoint.
+ * - [ClientSecretPost]: client_id and client_secret sent in the form body.
+ * - [ClientSecretBasic]: client_id and client_secret sent via HTTP Basic Authorization header.
+ */
+enum class OAuth_2_0_ClientAuthMethod {
+    ClientSecretPost,
+    ClientSecretBasic
+}
 
 
 class OAuth_2_0_Config {
@@ -43,11 +62,14 @@ class OAuth_2_0_Config {
     internal var _tokenUrl: Url? = null
     internal var _redirectUrl: Url? = null
     internal var _scopes: List<String> = emptyList()
+    internal var _grantType: OAuth_2_0_GrantType = OAuth_2_0_GrantType.AuthorizationCode
+    internal var _clientAuthMethod: OAuth_2_0_ClientAuthMethod = OAuth_2_0_ClientAuthMethod.ClientSecretPost
     internal var _authorizationRequestParameters: ParametersBuilder.() -> Unit = {
         // these are required for google
         //append("access_type", "offline")
         //append("prompt", "consent")
     }
+    internal var _tokenRequestParameters: ParametersBuilder.() -> Unit = {}
     internal var _state: String = generateRandomState()  // Always generate new state for security
     internal var _userAuthorize: (suspend (String, Url, List<String>, Url, String) -> String)? = { clientId, redirectUrl, scopes, authorizeUrl, state ->
         waitForOAuth_2_0_CallbackUsingKtorCIOEngineAndOpenUrl(
@@ -93,8 +115,20 @@ class OAuth_2_0_Config {
         _scopes = values.toList()
     }
 
+    fun grantType(value: OAuth_2_0_GrantType) {
+        _grantType = value
+    }
+
+    fun clientAuthMethod(value: OAuth_2_0_ClientAuthMethod) {
+        _clientAuthMethod = value
+    }
+
     fun authorizationRequestParameters(value: ParametersBuilder.() -> Unit) {
         _authorizationRequestParameters = value
+    }
+
+    fun tokenRequestParameters(value: ParametersBuilder.() -> Unit) {
+        _tokenRequestParameters = value
     }
 
     fun state(value: String) {
@@ -121,6 +155,44 @@ private fun generateRandomState(length: Int = 32): String {
     return (1..length).map { chars[Random.nextInt(chars.length)] }.joinToString("")
 }
 
+/**
+ * Sends a form-encoded POST to the token endpoint, applying the configured client authentication method.
+ */
+@OptIn(ExperimentalEncodingApi::class)
+private suspend fun HttpClient.tokenRequest(
+    tokenUrl: Url,
+    clientId: String,
+    clientSecret: String,
+    clientAuthMethod: OAuth_2_0_ClientAuthMethod,
+    formParameters: ParametersBuilder.() -> Unit
+): io.ktor.client.statement.HttpResponse {
+    return submitForm(
+        url = tokenUrl.toString(),
+        formParameters = io.ktor.http.Parameters.build {
+            when (clientAuthMethod) {
+                OAuth_2_0_ClientAuthMethod.ClientSecretPost -> {
+                    append("client_id", clientId)
+                    append("client_secret", clientSecret)
+                }
+                OAuth_2_0_ClientAuthMethod.ClientSecretBasic -> {
+                    // credentials go in Authorization header, not body
+                }
+            }
+            formParameters()
+        }
+    ) {
+        when (clientAuthMethod) {
+            OAuth_2_0_ClientAuthMethod.ClientSecretBasic -> {
+                val credentials = Base64.encode("$clientId:$clientSecret".encodeToByteArray())
+                header(HttpHeaders.Authorization, "Basic $credentials")
+            }
+            OAuth_2_0_ClientAuthMethod.ClientSecretPost -> {
+                // credentials already in form body
+            }
+        }
+    }
+}
+
 @Serializable
 private data class TokenResponse(
     @SerialName("access_token") val accessToken: String,
@@ -143,15 +215,25 @@ fun AuthConfig.oauth2(config: OAuth_2_0_Config.() -> Unit) {
         }
 
         refreshTokens {
-            val refreshToken = oldTokens?.refreshToken
-            if (refreshToken.isNullOrEmpty()) {
-                val newTokens = performAuthorizationCodeFlow(client, cfg)
-                cfg._saveTokens?.invoke(newTokens)
-                newTokens
-            } else {
-                val newTokens = performTokenRefresh(client, cfg, refreshToken)
-                cfg._saveTokens?.invoke(newTokens)
-                newTokens
+            when (cfg._grantType) {
+                OAuth_2_0_GrantType.AuthorizationCode -> {
+                    val refreshToken = oldTokens?.refreshToken
+                    if (refreshToken.isNullOrEmpty()) {
+                        val newTokens = performAuthorizationCodeFlow(client, cfg)
+                        cfg._saveTokens?.invoke(newTokens)
+                        newTokens
+                    } else {
+                        val newTokens = performTokenRefresh(client, cfg, refreshToken)
+                        cfg._saveTokens?.invoke(newTokens)
+                        newTokens
+                    }
+                }
+
+                OAuth_2_0_GrantType.ClientCredentials -> {
+                    val newTokens = performClientCredentialsFlow(client, cfg)
+                    cfg._saveTokens?.invoke(newTokens)
+                    newTokens
+                }
             }
         }
 
@@ -219,20 +301,17 @@ private suspend fun performAuthorizationCodeFlow(
     val redirectUrl = cfg._redirectUrl ?: error("redirectUrl not set")
     val scopes = cfg._scopes
     val state = cfg._state
+    val tokenRequestParameters = cfg._tokenRequestParameters
 
     val authorizationCode = userAuthorize.invoke(clientId, redirectUrl, scopes, authorizeUrl, state)
 
     // Exchange code for tokens using form-encoded body (per OAuth 2.0 spec)
-    val tokenResponse = client.submitForm(
-        url = tokenUrl.toString(),
-        formParameters = io.ktor.http.Parameters.build {
-            append("client_id", clientId)
-            append("client_secret", clientSecret)
-            append("code", authorizationCode)
-            append("grant_type", "authorization_code")
-            append("redirect_uri", redirectUrl.toString())
-        }
-    )
+    val tokenResponse = client.tokenRequest(tokenUrl, clientId, clientSecret, cfg._clientAuthMethod) {
+        append("code", authorizationCode)
+        append("grant_type", "authorization_code")
+        append("redirect_uri", redirectUrl.toString())
+        tokenRequestParameters()
+    }
 
     val tokensStr = when (tokenResponse.status) {
         HttpStatusCode.OK -> tokenResponse.bodyAsText()
@@ -251,18 +330,15 @@ private suspend fun performTokenRefresh(
     val clientId = cfg._clientId.ifEmpty { error("clientId not set") }
     val clientSecret = cfg._clientSecret.ifEmpty { error("clientSecret not set") }
     val tokenUrl = cfg._tokenUrl ?: error("tokenUrl not set")
+    val tokenRequestParameters = cfg._tokenRequestParameters
 
     logger.logTrace { "Refreshing access token" }
 
-    val refreshResponse = client.submitForm(
-        url = tokenUrl.toString(),
-        formParameters = io.ktor.http.Parameters.build {
-            append("client_id", clientId)
-            append("client_secret", clientSecret)
-            append("grant_type", "refresh_token")
-            append("refresh_token", refreshToken)
-        }
-    )
+    val refreshResponse = client.tokenRequest(tokenUrl, clientId, clientSecret, cfg._clientAuthMethod) {
+        append("grant_type", "refresh_token")
+        append("refresh_token", refreshToken)
+        tokenRequestParameters()
+    }
     val tokensStr = when (refreshResponse.status) {
         HttpStatusCode.OK -> refreshResponse.bodyAsText()
         else -> error("Token refresh failed: ${refreshResponse.status}")
@@ -272,5 +348,35 @@ private suspend fun performTokenRefresh(
     logger.logTrace { "Refreshed access token (expires_in=${newTokens.expiresIn})" }
 
     return BearerTokens(newTokens.accessToken, newTokens.refreshToken ?: refreshToken)
+}
+
+private suspend fun performClientCredentialsFlow(
+    client: HttpClient,
+    cfg: OAuth_2_0_Config
+): BearerTokens {
+    val clientId = cfg._clientId.ifEmpty { error("clientId not set") }
+    val clientSecret = cfg._clientSecret.ifEmpty { error("clientSecret not set") }
+    val tokenUrl = cfg._tokenUrl ?: error("tokenUrl not set")
+    val scopes = cfg._scopes
+    val tokenRequestParameters = cfg._tokenRequestParameters
+
+    logger.logTrace { "Requesting client credentials access token" }
+
+    val tokenResponse = client.tokenRequest(tokenUrl, clientId, clientSecret, cfg._clientAuthMethod) {
+        append("grant_type", "client_credentials")
+        if (scopes.isNotEmpty()) append("scope", scopes.joinToString(" "))
+        tokenRequestParameters()
+    }
+
+    val tokensStr = when (tokenResponse.status) {
+        HttpStatusCode.OK -> tokenResponse.bodyAsText()
+        else -> error("Client credentials token request failed: ${tokenResponse.status}")
+    }
+    val tokens = json.decodeFromString<TokenResponse>(tokensStr)
+
+    logger.logTrace { "Obtained client credentials access token (expires_in=${tokens.expiresIn})" }
+
+    // Client credentials usually does not return a refresh token.
+    return BearerTokens(tokens.accessToken, tokens.refreshToken ?: "")
 }
 

@@ -1,0 +1,59 @@
+[versions]
+project = "2.2.21-SNAPSHOT"
+
+kotlin = "2.2.21"
+dokka = "2.1.0"
+buildconfig = "5.7.1"
+kotlinx-serialization = "1.9.1"
+vanniktech = "0.35.0"
+
+ktor = "3.3.1"
+kotlinx-coroutines = "1.10.2"
+nal-agl = "4.2.2.21-SNAPSHOT"
+korlibs = "6.0.2"
+nak-kserialisation = "2.2.21-SNAPSHOT"
+nak-kotlinx = "2.2.21-SNAPSHOT"
+ksoup = "0.2.5"
+
+kotest = "6.0.4"
+macs = "0.8.0"
+
+[libraries]
+
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
+ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
+ktor-client-auth = { module = "io.ktor:ktor-client-auth", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-client-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+
+ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+
+nak-json = { module = "net.akehurst.kotlin.kserialisation:json", version.ref = "nak-kserialisation" }
+nak-kotlinx-logging-common = { module = "net.akehurst.kotlinx:kotlinx-logging-common", version.ref = "nak-kotlinx" }
+hmac-sha1 = { module = "org.kotlincrypto.macs:hmac-sha1", version.ref = "macs" }
+
+nal-agl-processor = { module = "net.akehurst.language:agl-processor", version.ref = "nal-agl" }
+korlibs-korio = { module = "com.soywiz:korlibs-io", version.ref = "korlibs" }
+ksoup = {module="com.fleeksoft.ksoup:ksoup", version.ref = "ksoup" }
+
+# Testing
+junit5-platform = { module = "org.junit:junit-bom", version.ref = "kotlinx-coroutines" }
+junit5-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit5-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+
+kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
+kotest-framework-engine = { module = "io.kotest:kotest-framework-engine", version.ref = "kotest" }
+kotest-runner-junit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest" }
+
+[plugins]
+kotlin = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
+buildconfig = { id = "com.github.gmazzo.buildconfig", version.ref = "buildconfig" }
+vanniktech-maven-publish = { id="com.vanniktech.maven.publish", version.ref="vanniktech" }
