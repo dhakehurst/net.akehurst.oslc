@@ -1,7 +1,7 @@
 net.akehurst.oslc
 
 First: Copyright 2025 Dr. David H. Akehurst
-Latest Version: Copyright 20265 Dr. David H. Akehurst
+Latest Version: Copyright 2026 Dr. David H. Akehurst
 
 This product includes software developed by
 Dr. David H. Akehurst (http://dr.david.h.akehurst.net/).
