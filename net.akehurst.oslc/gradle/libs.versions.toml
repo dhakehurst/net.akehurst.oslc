@@ -1,18 +1,18 @@
 [versions]
-project = "2.2.21-SNAPSHOT"
+project = "2.4.0-SNAPSHOT"
 
-kotlin = "2.2.21"
+kotlin = "2.4.0"
 dokka = "2.1.0"
 buildconfig = "5.7.1"
-kotlinx-serialization = "1.9.1"
+kotlinx-serialization = "1.9.0"
 vanniktech = "0.35.0"
 
 ktor = "3.3.1"
 kotlinx-coroutines = "1.10.2"
-nal-agl = "4.2.2.21-SNAPSHOT"
+nal-agl = "4.2.4.0-SNAPSHOT"
 korlibs = "6.0.2"
-nak-kserialisation = "2.2.21-SNAPSHOT"
-nak-kotlinx = "2.2.21-SNAPSHOT"
+nak-kserialisation = "2.4.0-SNAPSHOT"
+nak-kotlinx = "2.4.0-SNAPSHOT"
 ksoup = "0.2.5"
 
 kotest = "6.0.4"

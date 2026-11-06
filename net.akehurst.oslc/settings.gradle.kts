@@ -5,6 +5,7 @@ println("===============================================")
 
 pluginManagement {
     repositories {
+        mavenCentral()
         gradlePluginPortal()
     }
     includeBuild("./0_build-logic")
